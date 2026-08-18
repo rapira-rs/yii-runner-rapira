@@ -2,7 +2,7 @@
 
 declare(strict_types=1);
 
-namespace Yiisoft\Yii\Runner\Rapira\Tests\Acceptance\Support;
+namespace Yiisoft\Yii\Runner\Rapira\Tests\Feature\Support;
 
 use function function_exists;
 
@@ -44,7 +44,7 @@ final class RapiraWorker
             namespace Rapira {
                 function handle_request(callable $handler): bool
                 {
-                    return \Yiisoft\Yii\Runner\Rapira\Tests\Acceptance\Support\RapiraWorker::dispatch($handler);
+                    return \Yiisoft\Yii\Runner\Rapira\Tests\Feature\Support\RapiraWorker::dispatch($handler);
                 }
             }
             PHP_WRAP);

@@ -2,7 +2,7 @@
 
 declare(strict_types=1);
 
-namespace Yiisoft\Yii\Runner\Rapira\Tests\Acceptance\Support;
+namespace Yiisoft\Yii\Runner\Rapira\Tests\Feature\Support;
 
 use HttpSoft\Message\Response;
 use HttpSoft\Message\StreamFactory;

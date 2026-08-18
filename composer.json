@@ -41,6 +41,7 @@
         "yiisoft/yii-runner": "^2.2"
     },
     "require-dev": {
+        "ext-curl": "*",
         "friendsofphp/php-cs-fixer": "^3.95.1",
         "httpsoft/http-message": "^1.0",
         "llm/skills": "^1.9",
@@ -60,6 +61,8 @@
         "yiisoft/definitions": "^3.0",
         "yiisoft/http": "^1.2",
         "yiisoft/middleware-dispatcher": "^5.0",
+        "yiisoft/router": "^4.0",
+        "yiisoft/router-fastroute": "^4.0",
         "yiisoft/test-support": "^3.0",
         "yiisoft/yii-event": "^2.2"
     },

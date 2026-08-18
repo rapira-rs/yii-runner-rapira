@@ -2,7 +2,7 @@
 
 declare(strict_types=1);
 
-namespace Yiisoft\Yii\Runner\Rapira\Tests\Acceptance;
+namespace Yiisoft\Yii\Runner\Rapira\Tests\Feature;
 
 use Exception;
 use HttpSoft\Message\Response;
@@ -64,9 +64,9 @@ use Yiisoft\Yii\Http\Event\BeforeRequest;
 use Yiisoft\Yii\Http\Handler\NotFoundHandler;
 use Yiisoft\Yii\Runner\ApplicationRunner;
 use Yiisoft\Yii\Runner\Rapira\RapiraApplicationRunner;
-use Yiisoft\Yii\Runner\Rapira\Tests\Acceptance\Support\CurrentUser;
-use Yiisoft\Yii\Runner\Rapira\Tests\Acceptance\Support\CurrentUserMiddleware;
-use Yiisoft\Yii\Runner\Rapira\Tests\Acceptance\Support\RapiraWorker;
+use Yiisoft\Yii\Runner\Rapira\Tests\Feature\Support\CurrentUser;
+use Yiisoft\Yii\Runner\Rapira\Tests\Feature\Support\CurrentUserMiddleware;
+use Yiisoft\Yii\Runner\Rapira\Tests\Feature\Support\RapiraWorker;
 
 use function array_key_exists;
 use function dirname;

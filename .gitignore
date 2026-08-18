@@ -24,8 +24,14 @@ Thumbs.db
 # composer itself is not needed
 composer.phar
 
+# dload-downloaded binaries (e.g. rapira)
+/runtime
+
 # config merge plan
 .merge-plan.php
+
+# PHP CS Fixer
+/.php-cs-fixer.cache
 
 # Testo coverage report
 /coverage.xml
