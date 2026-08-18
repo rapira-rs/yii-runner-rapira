@@ -74,6 +74,12 @@ final class RapiraWorker
 
     private function handle(callable $handler): bool
     {
+        // No pending requests at all: mirrors the real worker returning false without ever
+        // invoking the handler, e.g. when the process is asked to shut down immediately.
+        if ($this->handleRequestCalls >= $this->keepRunningUntil) {
+            return false;
+        }
+
         foreach ($this->requestServerParameterKeys as $key) {
             unset($_SERVER[$key]);
         }

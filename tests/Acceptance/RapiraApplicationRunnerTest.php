@@ -12,6 +12,7 @@ use HttpSoft\Message\ServerRequestFactory;
 use HttpSoft\Message\StreamFactory;
 use HttpSoft\Message\UploadedFileFactory;
 use HttpSoft\Message\UriFactory;
+use LogicException;
 use Psr\Container\ContainerInterface;
 use Psr\EventDispatcher\EventDispatcherInterface;
 use Psr\Http\Message\ResponseFactoryInterface;
@@ -37,10 +38,13 @@ use Yiisoft\Config\ConfigInterface;
 use Yiisoft\Config\ConfigPaths;
 use Yiisoft\Definitions\DynamicReference;
 use Yiisoft\Definitions\Reference;
+use Yiisoft\Di\BuildingException;
 use Yiisoft\Di\Container;
 use Yiisoft\Di\ContainerConfig;
 use Yiisoft\Di\StateResetter;
+use Yiisoft\ErrorHandler\ErrorHandler;
 use Yiisoft\ErrorHandler\Factory\ThrowableResponseFactory;
+use Yiisoft\ErrorHandler\Middleware\ErrorCatcher;
 use Yiisoft\ErrorHandler\Renderer\PlainTextRenderer;
 use Yiisoft\ErrorHandler\ThrowableRendererInterface;
 use Yiisoft\ErrorHandler\ThrowableResponseFactoryInterface;
@@ -66,10 +70,16 @@ use Yiisoft\Yii\Runner\Rapira\Tests\Acceptance\Support\RapiraWorker;
 
 use function array_key_exists;
 use function dirname;
+use function set_error_handler;
+use function trigger_error;
+use function count;
+
+use const E_USER_WARNING;
 
 final class RapiraApplicationRunnerTest
 {
     public static bool $bootstrapExecuted = false;
+    public static bool $cycleDestroyed = false;
 
     private RapiraWorker $worker;
     private RapiraApplicationRunner $runner;
@@ -79,6 +89,7 @@ final class RapiraApplicationRunnerTest
     {
         $_SERVER['REQUEST_METHOD'] = 'GET';
         self::$bootstrapExecuted = false;
+        self::$cycleDestroyed = false;
 
         $this->worker = new RapiraWorker();
         $this->worker->activate();
@@ -139,6 +150,59 @@ final class RapiraApplicationRunnerTest
     }
 
     #[Test]
+    public function testConstructorKeepsProvidedTemporaryErrorHandler(): void
+    {
+        $temporaryErrorHandler = new ErrorHandler(new SimpleLogger(), new PlainTextRenderer());
+
+        $runner = new RapiraApplicationRunner(
+            rootPath: $this->supportPath(),
+            temporaryErrorHandler: $temporaryErrorHandler,
+        );
+
+        Assert::same($this->getPropertyValue($runner, 'temporaryErrorHandler'), $temporaryErrorHandler);
+    }
+
+    #[Test]
+    public function testRunRegistersTemporaryErrorHandlerBeforeContainerIsBuilt(): void
+    {
+        // The `ErrorHandler` service itself is built while resolving the real error handler
+        // from the container, so a warning raised there is only converted into an exception
+        // if the temporary error handler has already been registered by `runInternal()`.
+        $containerConfig = ContainerConfig::create()->withDefinitions([
+            ...$this->createDefinitions(false, false),
+            ErrorHandler::class => static function (): ErrorHandler {
+                trigger_error('Warning while building the error handler.', E_USER_WARNING);
+                return new ErrorHandler(new SimpleLogger(), new PlainTextRenderer());
+            },
+        ]);
+
+        $runner = $this->runner->withContainer(new Container($containerConfig));
+
+        // Reset the active PHP error handler to a neutral one that swallows warnings instead
+        // of throwing, so the assertion below reflects only what `runInternal()` registers.
+        set_error_handler(static fn(): bool => true);
+
+        Expect::exception(BuildingException::class)->withMessageContaining('Warning while building the error handler.');
+
+        $runner->run();
+    }
+
+    #[Test]
+    public function testRunUnregistersTemporaryErrorHandlerAfterContainerIsBuilt(): void
+    {
+        ob_start();
+        $this->runner->run();
+        ob_get_clean();
+
+        // Once the actual, container-configured error handler takes over, the temporary one used
+        // while building the container must be unregistered, i.e. no longer enabled.
+        $temporaryErrorHandler = $this->getPropertyValue($this->runner, 'temporaryErrorHandler');
+        $enabled = new ReflectionProperty(ErrorHandler::class, 'enabled');
+
+        Assert::false($enabled->getValue($temporaryErrorHandler));
+    }
+
+    #[Test]
     public function testRunWithCustomizedConfiguration(): void
     {
         $container = $this->createContainer();
@@ -175,6 +239,24 @@ final class RapiraApplicationRunnerTest
         $output = ob_get_clean();
 
         Assert::same(preg_match('/^Exception with message "Failure"/', $output), 1);
+    }
+
+    #[Test]
+    public function testRunReusesErrorCatcherAcrossWorkerRequests(): void
+    {
+        $this->worker->keepRunningUntil = 2;
+
+        $container = $this->createContainerWithTrackedErrorCatcher();
+        $runner = $this->runner->withContainer($container);
+
+        ob_start();
+        $runner->run();
+        ob_get_clean();
+
+        Assert::same($this->worker->handleRequestCalls, 2);
+        // The `ErrorCatcher` must be fetched from the container only once and reused for every
+        // subsequent throwable handled within the same worker run, no matter how many requests fail.
+        Assert::same(count($container->errorCatcherInstances), 1);
     }
 
     #[Test]
@@ -358,6 +440,18 @@ final class RapiraApplicationRunnerTest
     }
 
     #[Test]
+    public function testRunAndGetResponseThrowsWhenNothingWasEmitted(): void
+    {
+        $this->worker->keepRunningUntil = 0;
+
+        $runner = new RapiraApplicationRunner($this->supportPath(), false);
+
+        Expect::exception(LogicException::class)->withMessage('No response was emitted.');
+
+        $runner->runAndGetResponse();
+    }
+
+    #[Test]
     public function testWorkerModeResetsStateBetweenRequests(): void
     {
         $this->worker->keepRunningUntil = 2;
@@ -419,6 +513,71 @@ final class RapiraApplicationRunnerTest
         Assert::same($this->worker->handleRequestCalls, 2);
     }
 
+    #[Test]
+    public function testRunCollectsCyclicGarbageAfterRequest(): void
+    {
+        $runner = $this->runner->withContainer($this->createGcCycleContainer());
+
+        ob_start();
+        $runner->run();
+        ob_get_clean();
+
+        // A reference cycle can never be freed by refcounting alone once both locals holding
+        // it go out of scope; only an explicit `gc_collect_cycles()` call reclaims it.
+        Assert::true(self::$cycleDestroyed);
+    }
+
+    /**
+     * A container whose only middleware creates two objects that reference each other and then
+     * drops the local variables holding them, forming an unreachable reference cycle. Such a
+     * cycle is never released by PHP's refcounting alone; it takes an explicit
+     * `gc_collect_cycles()` call to destroy it, which lets the test observe whether that call
+     * actually happened.
+     */
+    private function createGcCycleContainer(): ContainerInterface
+    {
+        $containerConfig = ContainerConfig::create()->withDefinitions([
+            ...$this->createDefinitions(false, false),
+            Application::class => [
+                '__construct()' => [
+                    'dispatcher' => DynamicReference::to(
+                        static function (ContainerInterface $container) {
+                            return $container
+                                ->get(MiddlewareDispatcher::class)
+                                ->withMiddlewares([
+                                    static fn() => new class implements MiddlewareInterface {
+                                        public function process(
+                                            ServerRequestInterface $request,
+                                            RequestHandlerInterface $handler,
+                                        ): ResponseInterface {
+                                            $a = new class {
+                                                public mixed $ref = null;
+
+                                                public function __destruct()
+                                                {
+                                                    RapiraApplicationRunnerTest::$cycleDestroyed = true;
+                                                }
+                                            };
+                                            $b = new class {
+                                                public mixed $ref = null;
+                                            };
+                                            $a->ref = $b;
+                                            $b->ref = $a;
+
+                                            return (new ResponseFactory())->createResponse();
+                                        }
+                                    },
+                                ]);
+                        },
+                    ),
+                    'fallbackHandler' => Reference::to(NotFoundHandler::class),
+                ],
+            ],
+        ]);
+
+        return new Container($containerConfig);
+    }
+
     private function supportPath(): string
     {
         return dirname(__DIR__) . '/Support';
@@ -431,6 +590,44 @@ final class RapiraApplicationRunnerTest
         $containerConfig = ContainerConfig::create()
             ->withDefinitions($this->createDefinitions($throwException, $throwOnErrorResponseCreation));
         return new Container($containerConfig);
+    }
+
+    /**
+     * A container that always throws on every request (like {@see createContainer()} with
+     * `$throwException = true`), but resolves `ErrorCatcher::class` through a factory that builds
+     * a fresh instance on every call instead of caching it like {@see Container} does. This lets a
+     * test observe how many times `ErrorCatcher::class` is actually fetched from the container,
+     * regardless of the real container's own singleton behavior.
+     */
+    private function createContainerWithTrackedErrorCatcher(): ContainerInterface
+    {
+        $inner = $this->createContainer(true);
+
+        return new class ($inner) implements ContainerInterface {
+            /** @var list<ErrorCatcher> */
+            public array $errorCatcherInstances = [];
+
+            public function __construct(private readonly ContainerInterface $inner) {}
+
+            public function get(string $id): mixed
+            {
+                if ($id === ErrorCatcher::class) {
+                    $errorCatcher = new ErrorCatcher(
+                        $this->inner->get(ThrowableResponseFactoryInterface::class),
+                        $this->inner->get(EventDispatcherInterface::class),
+                    );
+                    $this->errorCatcherInstances[] = $errorCatcher;
+                    return $errorCatcher;
+                }
+
+                return $this->inner->get($id);
+            }
+
+            public function has(string $id): bool
+            {
+                return $id === ErrorCatcher::class || $this->inner->has($id);
+            }
+        };
     }
 
     private function createConfig(): Config
