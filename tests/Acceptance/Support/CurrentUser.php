@@ -2,7 +2,7 @@
 
 declare(strict_types=1);
 
-namespace Yiisoft\Yii\Runner\Rapira\Tests\Acceptance\Testo;
+namespace Yiisoft\Yii\Runner\Rapira\Tests\Acceptance\Support;
 
 /**
  * Minimal stateful "current user" service used to prove the runner resets container state between

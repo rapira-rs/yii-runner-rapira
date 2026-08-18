@@ -1,5 +1,7 @@
-# phpstorm project files
-.idea
+/.*/
+!/.phive/
+!/.github/
+!/.phar/
 
 # netbeans project files
 nbproject
@@ -22,16 +24,8 @@ Thumbs.db
 # composer itself is not needed
 composer.phar
 
-rr.exe
-
 # config merge plan
 .merge-plan.php
 
-# PHP CS Fixer
-/.php-cs-fixer.cache
-
 # Testo coverage report
 /coverage.xml
-
-# AI local settings
-/.claude

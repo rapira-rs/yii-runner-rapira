@@ -60,9 +60,9 @@ use Yiisoft\Yii\Http\Event\BeforeRequest;
 use Yiisoft\Yii\Http\Handler\NotFoundHandler;
 use Yiisoft\Yii\Runner\ApplicationRunner;
 use Yiisoft\Yii\Runner\Rapira\RapiraApplicationRunner;
-use Yiisoft\Yii\Runner\Rapira\Tests\Acceptance\Testo\CurrentUser;
-use Yiisoft\Yii\Runner\Rapira\Tests\Acceptance\Testo\CurrentUserMiddleware;
-use Yiisoft\Yii\Runner\Rapira\Tests\Acceptance\Testo\RapiraWorker;
+use Yiisoft\Yii\Runner\Rapira\Tests\Acceptance\Support\CurrentUser;
+use Yiisoft\Yii\Runner\Rapira\Tests\Acceptance\Support\CurrentUserMiddleware;
+use Yiisoft\Yii\Runner\Rapira\Tests\Acceptance\Support\RapiraWorker;
 
 use function array_key_exists;
 use function dirname;

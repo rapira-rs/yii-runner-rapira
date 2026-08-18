@@ -2,7 +2,7 @@
 
 declare(strict_types=1);
 
-namespace Yiisoft\Yii\Runner\Rapira\Tests\Testo;
+namespace Yiisoft\Yii\Runner\Rapira\Tests\Unit\Support;
 
 use HttpSoft\Message\StreamFactory;
 use Psr\Http\Message\StreamFactoryInterface;

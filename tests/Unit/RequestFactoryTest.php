@@ -17,7 +17,7 @@ use Testo\Lifecycle\BeforeClass;
 use Testo\Lifecycle\BeforeTest;
 use Testo\Test;
 use Yiisoft\Yii\Runner\Rapira\RequestFactory;
-use Yiisoft\Yii\Runner\Rapira\Tests\Testo\FailingFileStreamFactory;
+use Yiisoft\Yii\Runner\Rapira\Tests\Unit\Support\FailingFileStreamFactory;
 
 use function fopen;
 use function function_exists;

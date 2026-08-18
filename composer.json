@@ -53,7 +53,6 @@
         "roave/infection-static-analysis-plugin": "^1.35",
         "shipmonk/composer-dependency-analyser": "^1.8",
         "testo/bridge-infection": "^0.1.8",
-        "testo/bridge-rector": "^0.2.3",
         "testo/testo": "^0.10.41",
         "vimeo/psalm": "^5.22 || ^6.1",
         "yiisoft/code-style": "^1.0",
@@ -81,7 +80,8 @@
             "infection/extension-installer": true,
             "llm/skills": true,
             "yiisoft/config": true
-        }
+        },
+        "prefer-stable": true
     },
     "scripts": {
         "cs-fix": "php-cs-fixer fix",
