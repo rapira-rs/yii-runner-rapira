@@ -2,23 +2,27 @@
 
 declare(strict_types=1);
 
-namespace Yiisoft\Yii\Runner\Rapira\Tests\RequestFactory;
+namespace Yiisoft\Yii\Runner\Rapira\Tests\Unit;
 
 use HttpSoft\Message\ServerRequestFactory;
 use HttpSoft\Message\StreamFactory;
 use HttpSoft\Message\UploadedFileFactory;
 use HttpSoft\Message\UriFactory;
-use PHPUnit\Framework\Attributes\BackupGlobals;
-use PHPUnit\Framework\Attributes\DataProvider;
-use PHPUnit\Framework\TestCase;
-use Psr\Http\Message\StreamFactoryInterface;
 use RuntimeException;
+use Testo\Assert;
+use Testo\Data\DataProvider;
+use Testo\Expect;
+use Testo\Lifecycle\AfterTest;
+use Testo\Lifecycle\BeforeClass;
+use Testo\Lifecycle\BeforeTest;
+use Testo\Test;
 use Yiisoft\Yii\Runner\Rapira\RequestFactory;
+use Yiisoft\Yii\Runner\Rapira\Tests\Testo\FailingFileStreamFactory;
 
 use function fopen;
 use function function_exists;
 
-final class RequestFactoryTest extends TestCase
+final class RequestFactoryTest
 {
     public static array|false $getAllHeadersResult = false;
 
@@ -26,6 +30,7 @@ final class RequestFactoryTest extends TestCase
     private array $globalPost = [];
     private array $globalFiles = [];
 
+    #[BeforeClass]
     public static function setUpBeforeClass(): void
     {
         if (!function_exists('getallheaders')) {
@@ -33,13 +38,14 @@ final class RequestFactoryTest extends TestCase
             namespace {
                 function getallheaders(): array|false
                 {
-                    return \Yiisoft\Yii\Runner\Rapira\Tests\RequestFactory\RequestFactoryTest::getAllHeadersStubResult();
+                    return \Yiisoft\Yii\Runner\Rapira\Tests\Unit\RequestFactoryTest::getAllHeadersStubResult();
                 }
             }
             PHP_WRAP);
         }
     }
 
+    #[BeforeTest]
     protected function setUp(): void
     {
         $this->globalServer = $_SERVER;
@@ -48,6 +54,7 @@ final class RequestFactoryTest extends TestCase
         self::$getAllHeadersResult = false;
     }
 
+    #[AfterTest]
     protected function tearDown(): void
     {
         $_SERVER = $this->globalServer;
@@ -60,6 +67,7 @@ final class RequestFactoryTest extends TestCase
         return self::$getAllHeadersResult;
     }
 
+    #[Test]
     public function testUploadedFiles(): void
     {
         $_SERVER = [
@@ -86,15 +94,16 @@ final class RequestFactoryTest extends TestCase
         $serverRequest = $this->createRequestFactory()->create();
 
         $firstUploadedFile = $serverRequest->getUploadedFiles()['file1'];
-        $this->assertSame($firstFileName, $firstUploadedFile->getClientFilename());
+        Assert::same($firstUploadedFile->getClientFilename(), $firstFileName);
 
         $secondUploadedFile = $serverRequest->getUploadedFiles()['file2'][0];
-        $this->assertSame($secondFileName, $secondUploadedFile->getClientFilename());
+        Assert::same($secondUploadedFile->getClientFilename(), $secondFileName);
 
         $thirdUploadedFile = $serverRequest->getUploadedFiles()['file2'][1];
-        $this->assertSame($thirdFileName, $thirdUploadedFile->getClientFilename());
+        Assert::same($thirdUploadedFile->getClientFilename(), $thirdFileName);
     }
 
+    #[Test]
     public function testUploadedFilesFallbackToEmptyStreamWhenTemporaryFileIsUnavailable(): void
     {
         $_SERVER = [
@@ -111,17 +120,7 @@ final class RequestFactoryTest extends TestCase
             ],
         ];
 
-        $streamFactory = $this->createMock(StreamFactoryInterface::class);
-        $streamFactory
-            ->expects($this->once())
-            ->method('createStreamFromFile')
-            ->with('/non-existent-file')
-            ->willThrowException(new RuntimeException('Temporary file is unavailable.'));
-        $streamFactory
-            ->expects($this->once())
-            ->method('createStream')
-            ->with('')
-            ->willReturn((new StreamFactory())->createStream());
+        $streamFactory = new FailingFileStreamFactory();
 
         $requestFactory = new RequestFactory(
             new ServerRequestFactory(),
@@ -133,13 +132,17 @@ final class RequestFactoryTest extends TestCase
         $serverRequest = $requestFactory->create();
 
         $uploadedFile = $serverRequest->getUploadedFiles()['file1'];
-        $this->assertSame('facepalm.jpg', $uploadedFile->getClientFilename());
-        $this->assertSame('image/jpeg', $uploadedFile->getClientMediaType());
-        $this->assertSame(463, $uploadedFile->getSize());
-        $this->assertSame(0, $uploadedFile->getError());
-        $this->assertSame('', (string) $uploadedFile->getStream());
+        Assert::same($uploadedFile->getClientFilename(), 'facepalm.jpg');
+        Assert::same($uploadedFile->getClientMediaType(), 'image/jpeg');
+        Assert::same($uploadedFile->getSize(), 463);
+        Assert::same($uploadedFile->getError(), 0);
+        Assert::same((string) $uploadedFile->getStream(), '');
+
+        Assert::same($streamFactory->createStreamFromFileCalls, ['/non-existent-file']);
+        Assert::same($streamFactory->createStreamCalls, ['']);
     }
 
+    #[Test]
     public function testHeadersParsing(): void
     {
         $_SERVER = [
@@ -159,9 +162,10 @@ final class RequestFactoryTest extends TestCase
 
         $request = $this->createRequestFactory()->create();
 
-        $this->assertSame($expected, $request->getHeaders());
+        Assert::same($request->getHeaders(), $expected);
     }
 
+    #[Test]
     public function testHeadersParsingFallsBackWhenGetAllHeadersReturnsFalse(): void
     {
         self::$getAllHeadersResult = false;
@@ -173,15 +177,13 @@ final class RequestFactoryTest extends TestCase
 
         $request = $this->createRequestFactory()->create();
 
-        $this->assertSame(
-            [
-                'Host' => ['example.com'],
-                'Content-Type' => ['text/plain'],
-            ],
-            $request->getHeaders(),
-        );
+        Assert::same($request->getHeaders(), [
+            'Host' => ['example.com'],
+            'Content-Type' => ['text/plain'],
+        ]);
     }
 
+    #[Test]
     public function testHeadersAreTakenFromGetAllHeadersWhenAvailable(): void
     {
         self::$getAllHeadersResult = [
@@ -194,8 +196,8 @@ final class RequestFactoryTest extends TestCase
 
         $request = $this->createRequestFactory()->create();
 
-        $this->assertSame(['header-value'], $request->getHeader('X-Test'));
-        $this->assertSame(['another-value'], $request->getHeader('X-Another'));
+        Assert::same($request->getHeader('X-Test'), ['header-value']);
+        Assert::same($request->getHeader('X-Another'), ['another-value']);
     }
 
     public static function ipv6AuthorityDataProvider(): array
@@ -213,6 +215,7 @@ final class RequestFactoryTest extends TestCase
     }
 
     #[DataProvider('ipv6AuthorityDataProvider')]
+    #[Test]
     public function testIpv6HostIsFormattedAsUriAuthority(string $hostHeader, string $expectedUri): void
     {
         $_SERVER = [
@@ -222,17 +225,17 @@ final class RequestFactoryTest extends TestCase
 
         $request = $this->createRequestFactory()->create();
 
-        $this->assertSame($expectedUri, (string) $request->getUri());
+        Assert::same((string) $request->getUri(), $expectedUri);
     }
 
+    #[Test]
     public function testInvalidMethodException(): void
     {
         $_SERVER = [];
 
         $requestFactory = $this->createRequestFactory();
 
-        $this->expectException(RuntimeException::class);
-        $this->expectExceptionMessage('Unable to determine HTTP request method.');
+        Expect::exception(RuntimeException::class)->withMessage('Unable to determine HTTP request method.');
         $requestFactory->create();
     }
 
@@ -245,6 +248,7 @@ final class RequestFactoryTest extends TestCase
     }
 
     #[DataProvider('bodyDataProvider')]
+    #[Test]
     public function testBody(string $expected, ?string $body): void
     {
         $_SERVER = ['REQUEST_METHOD' => 'GET'];
@@ -252,7 +256,7 @@ final class RequestFactoryTest extends TestCase
         $requestFactory = $this->createRequestFactory();
         $request = $requestFactory->create($this->createResource($body));
 
-        $this->assertSame($expected, (string) $request->getBody());
+        Assert::same((string) $request->getBody(), $expected);
     }
 
     public static function hostParsingDataProvider(): array
@@ -501,36 +505,37 @@ final class RequestFactoryTest extends TestCase
     }
 
     #[DataProvider('hostParsingDataProvider')]
+    #[Test]
     public function testHostParsingFromParameters(array $serverParams, array $expectParams): void
     {
         $_SERVER = $serverParams;
 
         $request = $this->createRequestFactory()->create();
 
-        $this->assertSame($expectParams['host'], $request->getUri()->getHost());
-        $this->assertSame($expectParams['port'], $request->getUri()->getPort());
-        $this->assertSame($expectParams['method'], $request->getMethod());
-        $this->assertSame($expectParams['protocol'], $request->getProtocolVersion());
-        $this->assertSame($expectParams['scheme'], $request->getUri()->getScheme());
-        $this->assertSame($expectParams['path'], $request->getUri()->getPath());
-        $this->assertSame($expectParams['query'], $request->getUri()->getQuery());
+        Assert::same($request->getUri()->getHost(), $expectParams['host']);
+        Assert::same($request->getUri()->getPort(), $expectParams['port']);
+        Assert::same($request->getMethod(), $expectParams['method']);
+        Assert::same($request->getProtocolVersion(), $expectParams['protocol']);
+        Assert::same($request->getUri()->getScheme(), $expectParams['scheme']);
+        Assert::same($request->getUri()->getPath(), $expectParams['path']);
+        Assert::same($request->getUri()->getQuery(), $expectParams['query']);
     }
 
     #[DataProvider('hostParsingDataProvider')]
-    #[BackupGlobals(true)]
+    #[Test]
     public function testHostParsingFromGlobals(array $serverParams, array $expectParams): void
     {
         $_SERVER = $serverParams;
 
         $request = $this->createRequestFactory()->create();
 
-        $this->assertSame($expectParams['host'], $request->getUri()->getHost());
-        $this->assertSame($expectParams['port'], $request->getUri()->getPort());
-        $this->assertSame($expectParams['method'], $request->getMethod());
-        $this->assertSame($expectParams['protocol'], $request->getProtocolVersion());
-        $this->assertSame($expectParams['scheme'], $request->getUri()->getScheme());
-        $this->assertSame($expectParams['path'], $request->getUri()->getPath());
-        $this->assertSame($expectParams['query'], $request->getUri()->getQuery());
+        Assert::same($request->getUri()->getHost(), $expectParams['host']);
+        Assert::same($request->getUri()->getPort(), $expectParams['port']);
+        Assert::same($request->getMethod(), $expectParams['method']);
+        Assert::same($request->getProtocolVersion(), $expectParams['protocol']);
+        Assert::same($request->getUri()->getScheme(), $expectParams['scheme']);
+        Assert::same($request->getUri()->getPath(), $expectParams['path']);
+        Assert::same($request->getUri()->getQuery(), $expectParams['query']);
     }
 
     public static function dataPostInParsedBody(): array
@@ -548,6 +553,7 @@ final class RequestFactoryTest extends TestCase
     }
 
     #[DataProvider('dataPostInParsedBody')]
+    #[Test]
     public function testPostInParsedBody(array $post, string $contentType): void
     {
         $_SERVER = [
@@ -559,9 +565,10 @@ final class RequestFactoryTest extends TestCase
         $requestFactory = $this->createRequestFactory();
         $request = $requestFactory->create();
 
-        $this->assertSame($post, $request->getParsedBody());
+        Assert::same($request->getParsedBody(), $post);
     }
 
+    #[Test]
     public function testPostBodyIsNotParsedForPrefixedFormUrlEncodedContentType(): void
     {
         $_SERVER = [
@@ -572,9 +579,10 @@ final class RequestFactoryTest extends TestCase
 
         $request = $this->createRequestFactory()->create();
 
-        $this->assertNull($request->getParsedBody());
+        Assert::null($request->getParsedBody());
     }
 
+    #[Test]
     public function testPostBodyIsNotParsedForPrefixedMultipartContentType(): void
     {
         $_SERVER = [
@@ -585,9 +593,10 @@ final class RequestFactoryTest extends TestCase
 
         $request = $this->createRequestFactory()->create();
 
-        $this->assertNull($request->getParsedBody());
+        Assert::null($request->getParsedBody());
     }
 
+    #[Test]
     public function testNotParseUJsonWithoutBody(): void
     {
         $_SERVER = [
@@ -598,9 +607,10 @@ final class RequestFactoryTest extends TestCase
         $requestFactory = $this->createRequestFactory();
         $request = $requestFactory->create(false);
 
-        $this->assertNull($request->getParsedBody());
+        Assert::null($request->getParsedBody());
     }
 
+    #[Test]
     public function testNotParseUnknownType(): void
     {
         $_SERVER = [
@@ -611,9 +621,10 @@ final class RequestFactoryTest extends TestCase
         $requestFactory = $this->createRequestFactory();
         $request = $requestFactory->create($this->createResource('hello'));
 
-        $this->assertNull($request->getParsedBody());
+        Assert::null($request->getParsedBody());
     }
 
+    #[Test]
     public function testMalformedHostWithLeadingNewlineIsNotParsedAsHostPortPair(): void
     {
         $_SERVER = [
@@ -623,8 +634,8 @@ final class RequestFactoryTest extends TestCase
 
         $request = $this->createRequestFactory()->create();
 
-        $this->assertSame("\nexample.com:8080", $request->getUri()->getHost());
-        $this->assertNull($request->getUri()->getPort());
+        Assert::same($request->getUri()->getHost(), "\nexample.com:8080");
+        Assert::null($request->getUri()->getPort());
     }
 
     private function createRequestFactory(): RequestFactory

@@ -2,7 +2,7 @@
 
 declare(strict_types=1);
 
-namespace Yiisoft\Yii\Runner\Rapira\Tests;
+namespace Yiisoft\Yii\Runner\Rapira\Tests\Acceptance;
 
 use Exception;
 use HttpSoft\Message\Response;
@@ -12,7 +12,6 @@ use HttpSoft\Message\ServerRequestFactory;
 use HttpSoft\Message\StreamFactory;
 use HttpSoft\Message\UploadedFileFactory;
 use HttpSoft\Message\UriFactory;
-use PHPUnit\Framework\TestCase;
 use Psr\Container\ContainerInterface;
 use Psr\EventDispatcher\EventDispatcherInterface;
 use Psr\Http\Message\ResponseFactoryInterface;
@@ -25,8 +24,14 @@ use Psr\Http\Message\UriFactoryInterface;
 use Psr\Http\Server\MiddlewareInterface;
 use Psr\Http\Server\RequestHandlerInterface;
 use Psr\Log\LoggerInterface;
-use ReflectionMethod;
 use ReflectionProperty;
+use Testo\Assert;
+use Testo\Expect;
+use Testo\Lifecycle\AfterTest;
+use Testo\Lifecycle\BeforeClass;
+use Testo\Lifecycle\BeforeTest;
+use Testo\Test;
+use Throwable;
 use Yiisoft\Config\Config;
 use Yiisoft\Config\ConfigInterface;
 use Yiisoft\Config\ConfigPaths;
@@ -45,125 +50,95 @@ use Yiisoft\Middleware\Dispatcher\MiddlewareDispatcher;
 use Yiisoft\PsrEmitter\FakeEmitter;
 use Yiisoft\Test\Support\EventDispatcher\SimpleEventDispatcher;
 use Yiisoft\Test\Support\Log\SimpleLogger;
-use Yiisoft\Yii\Http\Application;
 use Yiisoft\Yii\Event\InvalidEventConfigurationFormatException;
+use Yiisoft\Yii\Http\Application;
 use Yiisoft\Yii\Http\Event\AfterEmit;
 use Yiisoft\Yii\Http\Event\AfterRequest;
 use Yiisoft\Yii\Http\Event\ApplicationShutdown;
 use Yiisoft\Yii\Http\Event\ApplicationStartup;
 use Yiisoft\Yii\Http\Event\BeforeRequest;
 use Yiisoft\Yii\Http\Handler\NotFoundHandler;
-use Yiisoft\Yii\Runner\Rapira\RapiraApplicationRunner;
 use Yiisoft\Yii\Runner\ApplicationRunner;
+use Yiisoft\Yii\Runner\Rapira\RapiraApplicationRunner;
+use Yiisoft\Yii\Runner\Rapira\Tests\Acceptance\Testo\CurrentUser;
+use Yiisoft\Yii\Runner\Rapira\Tests\Acceptance\Testo\CurrentUserMiddleware;
+use Yiisoft\Yii\Runner\Rapira\Tests\Acceptance\Testo\RapiraWorker;
 
-use Throwable;
-
-use function PHPUnit\Framework\assertInstanceOf;
-use function PHPUnit\Framework\assertSame;
 use function array_key_exists;
-use function function_exists;
+use function dirname;
 
-final class RapiraApplicationRunnerTest extends TestCase
+final class RapiraApplicationRunnerTest
 {
-    public static int $rapiraHandleRequestCalls = 0;
-    public static int $rapiraHandleRequestKeepRunningUntil = 1;
-    public static array $rapiraRequestServerParameters = [];
     public static bool $bootstrapExecuted = false;
-    private static array $rapiraRequestServerParameterKeys = [];
 
+    private RapiraWorker $worker;
     private RapiraApplicationRunner $runner;
 
-    public static function setUpBeforeClass(): void
-    {
-        if (!function_exists('Rapira\handle_request')) {
-            eval(<<<'PHP_WRAP'
-            namespace Rapira {
-                function handle_request(callable $handler): bool
-                {
-                    return \Yiisoft\Yii\Runner\Rapira\Tests\RapiraApplicationRunnerTest::handleRapiraRequest($handler);
-                }
-            }
-            PHP_WRAP);
-        }
-    }
-
+    #[BeforeTest]
     public function setUp(): void
     {
-        parent::setUp();
-
         $_SERVER['REQUEST_METHOD'] = 'GET';
-        foreach (self::$rapiraRequestServerParameterKeys as $key) {
-            unset($_SERVER[$key]);
-        }
-        self::$rapiraHandleRequestCalls = 0;
-        self::$rapiraHandleRequestKeepRunningUntil = 1;
-        self::$rapiraRequestServerParameters = [];
-        self::$rapiraRequestServerParameterKeys = [];
         self::$bootstrapExecuted = false;
+
+        $this->worker = new RapiraWorker();
+        $this->worker->activate();
+
         $this->runner = new RapiraApplicationRunner(
-            rootPath: __DIR__ . '/Support',
+            rootPath: $this->supportPath(),
             debug: true,
         );
     }
 
-    protected function tearDown(): void
+    #[AfterTest]
+    public function tearDown(): void
     {
-        parent::tearDown();
+        $this->worker->cleanup();
     }
 
-    public static function handleRapiraRequest(callable $handler): bool
+    #[BeforeClass]
+    public static function registerRapiraStub(): void
     {
-        foreach (self::$rapiraRequestServerParameterKeys as $key) {
-            unset($_SERVER[$key]);
-        }
-
-        self::$rapiraRequestServerParameterKeys = [];
-        foreach (self::$rapiraRequestServerParameters[self::$rapiraHandleRequestCalls] ?? [] as $key => $value) {
-            $_SERVER[$key] = $value;
-            self::$rapiraRequestServerParameterKeys[] = $key;
-        }
-
-        self::$rapiraHandleRequestCalls++;
-
-        return $handler() && self::$rapiraHandleRequestCalls < self::$rapiraHandleRequestKeepRunningUntil;
+        RapiraWorker::register();
     }
 
+    #[Test]
     public function testRun(): void
     {
-        $this->expectOutputString('OK');
-
+        ob_start();
         $this->runner->run();
+        $output = ob_get_clean();
+
+        Assert::same($output, 'OK');
     }
 
+    #[Test]
     public function testRunWithoutBootstrapAndCheckEvents(): void
     {
         $runner = new RapiraApplicationRunner(
-            rootPath: __DIR__ . '/Support',
+            rootPath: $this->supportPath(),
             debug: true,
             checkEvents: false,
         );
 
-        $this->expectOutputString('OK');
-
+        ob_start();
         $runner->run();
+        $output = ob_get_clean();
+
+        Assert::same($output, 'OK');
     }
 
+    #[Test]
     public function testConstructorDefaultsAreConfiguredAsExpected(): void
     {
-        $runner = new RapiraApplicationRunner(__DIR__ . '/Support');
+        $runner = new RapiraApplicationRunner($this->supportPath());
 
-        $this->assertFalse($this->getPropertyValue($runner, 'debug', ApplicationRunner::class));
-        $this->assertFalse($this->getPropertyValue($runner, 'checkEvents', ApplicationRunner::class));
-        $this->assertSame(
-            ['params'],
-            $this->getPropertyValue($runner, 'nestedParamsGroups', ApplicationRunner::class),
-        );
-        $this->assertSame(
-            ['events'],
-            $this->getPropertyValue($runner, 'nestedEventsGroups', ApplicationRunner::class),
-        );
+        Assert::false($this->getPropertyValue($runner, 'debug', ApplicationRunner::class));
+        Assert::false($this->getPropertyValue($runner, 'checkEvents', ApplicationRunner::class));
+        Assert::same($this->getPropertyValue($runner, 'nestedParamsGroups', ApplicationRunner::class), ['params']);
+        Assert::same($this->getPropertyValue($runner, 'nestedEventsGroups', ApplicationRunner::class), ['events']);
     }
 
+    #[Test]
     public function testRunWithCustomizedConfiguration(): void
     {
         $container = $this->createContainer();
@@ -172,55 +147,61 @@ final class RapiraApplicationRunnerTest extends TestCase
             ->withContainer($container)
             ->withConfig($this->createConfig());
 
+        ob_start();
         $runner->run();
+        ob_get_clean();
 
         /** @var SimpleEventDispatcher $dispatcher */
         $dispatcher = $container->get(EventDispatcherInterface::class);
 
-        $this->assertSame(
-            [
-                ApplicationStartup::class,
-                BeforeRequest::class,
-                BeforeMiddleware::class,
-                AfterMiddleware::class,
-                AfterRequest::class,
-                AfterEmit::class,
-                ApplicationShutdown::class,
-            ],
-            $dispatcher->getEventClasses(),
-        );
+        Assert::same($dispatcher->getEventClasses(), [
+            ApplicationStartup::class,
+            BeforeRequest::class,
+            BeforeMiddleware::class,
+            AfterMiddleware::class,
+            AfterRequest::class,
+            AfterEmit::class,
+            ApplicationShutdown::class,
+        ]);
     }
 
+    #[Test]
     public function testRunWithFailureDuringProcess(): void
     {
         $runner = $this->runner->withContainer($this->createContainer(true));
 
-        $this->expectOutputRegex('/^Exception with message "Failure"/');
-
+        ob_start();
         $runner->run();
+        $output = ob_get_clean();
+
+        Assert::same(preg_match('/^Exception with message "Failure"/', $output), 1);
     }
 
+    #[Test]
     public function testRunExecutesBootstrapCallbacks(): void
     {
-        $runner = (new RapiraApplicationRunner(__DIR__ . '/Support', false))
+        $runner = (new RapiraApplicationRunner($this->supportPath(), false))
             ->withContainer($this->createContainer())
             ->withConfig($this->createStubConfig([
                 'bootstrap-web' => [
                     static function (ContainerInterface $container): void {
-                        RapiraApplicationRunnerTest::$bootstrapExecuted = $container instanceof ContainerInterface;
+                        self::$bootstrapExecuted = $container instanceof ContainerInterface;
                     },
                 ],
             ]));
 
+        ob_start();
         $runner->run();
+        ob_get_clean();
 
-        $this->assertTrue(self::$bootstrapExecuted);
+        Assert::true(self::$bootstrapExecuted);
     }
 
+    #[Test]
     public function testRunChecksEventsConfigurationWhenEnabled(): void
     {
         $runner = (new RapiraApplicationRunner(
-            rootPath: __DIR__ . '/Support',
+            rootPath: $this->supportPath(),
             debug: false,
             checkEvents: true,
         ))
@@ -229,72 +210,79 @@ final class RapiraApplicationRunnerTest extends TestCase
                 'events-web' => ['not-an-event-class' => [static fn() => null]],
             ]));
 
-        $this->expectException(InvalidEventConfigurationFormatException::class);
+        Expect::exception(InvalidEventConfigurationFormatException::class);
 
         $runner->run();
     }
 
+    #[Test]
     public function testRunRethrowsWhenErrorResponseCreationFails(): void
     {
         $runner = $this->runner->withContainer($this->createContainer(true, true));
 
-        $this->expectException(Exception::class);
-        $this->expectExceptionMessage('Failure while creating error response');
+        Expect::exception(Exception::class)->withMessage('Failure while creating error response');
 
         $runner->run();
     }
 
+    #[Test]
     public function testRunRethrowsWhenEmitterFails(): void
     {
-        self::$rapiraHandleRequestKeepRunningUntil = 2;
+        $this->worker->keepRunningUntil = 2;
 
         $runner = new RapiraApplicationRunner(
-            rootPath: __DIR__ . '/Support',
+            rootPath: $this->supportPath(),
             environment: 'view-response-with-error',
             debug: true,
         );
 
+        ob_start();
         $runner->run();
+        $output = ob_get_clean();
 
-        $this->assertSame(2, self::$rapiraHandleRequestCalls);
-        $this->expectOutputRegex('/^Exception with message "Failure while creating response stream"/');
+        Assert::same($this->worker->handleRequestCalls, 2);
+        Assert::same(preg_match('/^Exception with message "Failure while creating response stream"/', $output), 1);
     }
 
+    #[Test]
     public function testConfigMergePlanFile(): void
     {
         $runner = new RapiraApplicationRunner(
-            rootPath: __DIR__ . '/Support',
+            rootPath: $this->supportPath(),
             configMergePlanFile: 'test-merge-plan.php',
         );
 
         $params = $runner->getConfig()->get('params-web');
 
-        $this->assertSame(['a' => 42,], $params);
+        Assert::same($params, ['a' => 42,]);
     }
 
+    #[Test]
     public function testConfigDirectory(): void
     {
         $runner = new RapiraApplicationRunner(
-            rootPath: __DIR__ . '/Support',
+            rootPath: $this->supportPath(),
             configDirectory: 'custom-config',
         );
 
         $params = $runner->getConfig()->get('params-web');
 
-        $this->assertSame(['age' => 22], $params);
+        Assert::same($params, ['age' => 22]);
     }
 
+    #[Test]
     public function testImmutability(): void
     {
-        $this->assertNotSame($this->runner, $this->runner->withConfig($this->createConfig()));
-        $this->assertNotSame($this->runner, $this->runner->withContainer($this->createContainer()));
+        Assert::notSame($this->runner->withConfig($this->createConfig()), $this->runner);
+        Assert::notSame($this->runner->withContainer($this->createContainer()), $this->runner);
     }
 
+    #[Test]
     public function testDoNotModifyExistsContentLength(): void
     {
         $emitter = new FakeEmitter();
         $runner = new RapiraApplicationRunner(
-            rootPath: __DIR__ . '/Support',
+            rootPath: $this->supportPath(),
             environment: 'do-not-modify-exists-content-length',
             emitter: $emitter,
         );
@@ -302,18 +290,16 @@ final class RapiraApplicationRunnerTest extends TestCase
         $runner->run();
 
         $response = $emitter->getLastResponse();
-        assertInstanceOf(ResponseInterface::class, $response);
-        assertSame(
-            ['Content-Length' => ['100']],
-            $response->getHeaders(),
-        );
+        Assert::instanceOf($response, ResponseInterface::class);
+        Assert::same($response->getHeaders(), ['Content-Length' => ['100']]);
     }
 
+    #[Test]
     public function testDoNotAddContentMiddlewareWithContinueStatus(): void
     {
         $emitter = new FakeEmitter();
         $runner = new RapiraApplicationRunner(
-            rootPath: __DIR__ . '/Support',
+            rootPath: $this->supportPath(),
             environment: 'do-not-add-content-middleware-with-continue-status',
             emitter: $emitter,
         );
@@ -321,41 +307,46 @@ final class RapiraApplicationRunnerTest extends TestCase
         $runner->run();
 
         $response = $emitter->getLastResponse();
-        assertInstanceOf(ResponseInterface::class, $response);
-        assertSame(
-            [],
-            $response->getHeaders(),
-        );
+        Assert::instanceOf($response, ResponseInterface::class);
+        Assert::same($response->getHeaders(), []);
     }
 
+    #[Test]
     public function testRunAndGetResponse(): void
     {
-        $runner = new RapiraApplicationRunner(__DIR__ . '/Support', false);
+        $runner = new RapiraApplicationRunner($this->supportPath(), false);
 
+        ob_start();
         $response = $runner->runAndGetResponse();
+        $output = ob_get_clean();
 
-        assertSame(200, $response->getStatusCode());
-        $this->expectOutputString('');
+        Assert::same($response->getStatusCode(), 200);
+        Assert::same($output, '');
     }
 
+    #[Test]
     public function testRunAndGetResponseWithRequest(): void
     {
         $runner = new RapiraApplicationRunner(
-            rootPath: __DIR__ . '/Support',
+            rootPath: $this->supportPath(),
             environment: 'run-without-emit-with-request',
         );
 
         $request = (new ServerRequest(headers: ['X-CONTENT' => ['Test content']]));
-        $response = $runner->runAndGetResponse($request);
 
-        assertSame(200, $response->getStatusCode());
-        assertSame('Test content', $response->getBody()->getContents());
-        $this->expectOutputString('');
+        ob_start();
+        $response = $runner->runAndGetResponse($request);
+        $output = ob_get_clean();
+
+        Assert::same($response->getStatusCode(), 200);
+        Assert::same($response->getBody()->getContents(), 'Test content');
+        Assert::same($output, '');
     }
 
+    #[Test]
     public function testRunAndGetResponseReusesFakeEmitter(): void
     {
-        $runner = new RapiraApplicationRunner(__DIR__ . '/Support', false);
+        $runner = new RapiraApplicationRunner($this->supportPath(), false);
 
         $runner->runAndGetResponse();
         $firstEmitter = $this->getPropertyValue($runner, 'fakeEmitter');
@@ -363,16 +354,17 @@ final class RapiraApplicationRunnerTest extends TestCase
         $runner->runAndGetResponse();
         $secondEmitter = $this->getPropertyValue($runner, 'fakeEmitter');
 
-        $this->assertSame($firstEmitter, $secondEmitter);
+        Assert::same($secondEmitter, $firstEmitter);
     }
 
+    #[Test]
     public function testWorkerModeResetsStateBetweenRequests(): void
     {
-        self::$rapiraHandleRequestKeepRunningUntil = 2;
+        $this->worker->keepRunningUntil = 2;
 
         $emitter = new FakeEmitter();
         $runner = new RapiraApplicationRunner(
-            rootPath: __DIR__ . '/Support',
+            rootPath: $this->supportPath(),
             debug: false,
             emitter: $emitter,
         );
@@ -381,36 +373,40 @@ final class RapiraApplicationRunnerTest extends TestCase
         $runner->run();
 
         $response = $emitter->getLastResponse();
-        assertInstanceOf(ResponseInterface::class, $response);
-        $this->assertSame('1', (string) $response->getBody());
-        $this->assertSame(2, self::$rapiraHandleRequestCalls);
+        Assert::instanceOf($response, ResponseInterface::class);
+        Assert::same((string) $response->getBody(), '1');
+        Assert::same($this->worker->handleRequestCalls, 2);
     }
 
+    #[Test]
     public function testWorkerModeContinuesUntilHandlerStops(): void
     {
-        self::$rapiraHandleRequestKeepRunningUntil = 2;
+        $this->worker->keepRunningUntil = 2;
 
         $runner = (new RapiraApplicationRunner(
-            rootPath: __DIR__ . '/Support',
+            rootPath: $this->supportPath(),
             debug: false,
         ))->withContainer($this->createWorkerModeContainer());
 
+        ob_start();
         $runner->run();
+        ob_get_clean();
 
-        $this->assertSame(2, self::$rapiraHandleRequestCalls);
+        Assert::same($this->worker->handleRequestCalls, 2);
     }
 
+    #[Test]
     public function testWorkerModeDoesNotLeakAuthenticatedUserToNextRequest(): void
     {
-        self::$rapiraHandleRequestKeepRunningUntil = 2;
-        self::$rapiraRequestServerParameters = [
+        $this->worker->keepRunningUntil = 2;
+        $this->worker->requestServerParameters = [
             ['HTTP_X_USER_ID' => 'alice'],
             [],
         ];
 
         $emitter = new FakeEmitter();
         $runner = (new RapiraApplicationRunner(
-            rootPath: __DIR__ . '/Support',
+            rootPath: $this->supportPath(),
             debug: false,
             emitter: $emitter,
         ))->withContainer($this->createAuthenticatedUserWorkerModeContainer());
@@ -418,9 +414,14 @@ final class RapiraApplicationRunnerTest extends TestCase
         $runner->run();
 
         $response = $emitter->getLastResponse();
-        assertInstanceOf(ResponseInterface::class, $response);
-        $this->assertSame('guest', (string) $response->getBody());
-        $this->assertSame(2, self::$rapiraHandleRequestCalls);
+        Assert::instanceOf($response, ResponseInterface::class);
+        Assert::same((string) $response->getBody(), 'guest');
+        Assert::same($this->worker->handleRequestCalls, 2);
+    }
+
+    private function supportPath(): string
+    {
+        return dirname(__DIR__) . '/Support';
     }
 
     private function createContainer(
@@ -434,7 +435,7 @@ final class RapiraApplicationRunnerTest extends TestCase
 
     private function createConfig(): Config
     {
-        return new Config(new ConfigPaths(__DIR__ . '/Support', 'config'), paramsGroup: 'params-web');
+        return new Config(new ConfigPaths($this->supportPath(), 'config'), paramsGroup: 'params-web');
     }
 
     private function createStubConfig(array $configurations): ConfigInterface
@@ -622,49 +623,5 @@ final class RapiraApplicationRunnerTest extends TestCase
         string $class = RapiraApplicationRunner::class,
     ): mixed {
         return (new ReflectionProperty($class, $property))->getValue($object);
-    }
-
-    private function invokeMethod(object $object, string $method, array $arguments = []): mixed
-    {
-        return (new ReflectionMethod($object, $method))->invokeArgs($object, $arguments);
-    }
-}
-
-final class CurrentUser
-{
-    private ?string $id = null;
-
-    public function authenticate(string $id): void
-    {
-        $this->id = $id;
-    }
-
-    public function logout(): void
-    {
-        $this->id = null;
-    }
-
-    public function name(): string
-    {
-        return $this->id ?? 'guest';
-    }
-}
-
-final class CurrentUserMiddleware implements MiddlewareInterface
-{
-    public function __construct(private readonly CurrentUser $currentUser) {}
-
-    public function process(
-        ServerRequestInterface $request,
-        RequestHandlerInterface $handler,
-    ): ResponseInterface {
-        $userId = $request->getHeaderLine('X-User-Id');
-        if ($userId !== '') {
-            $this->currentUser->authenticate($userId);
-        }
-
-        return (new Response())->withBody(
-            (new StreamFactory())->createStream($this->currentUser->name()),
-        );
     }
 }

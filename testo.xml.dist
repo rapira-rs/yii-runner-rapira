@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+    Placeholder for Infection only.
+
+    Infection's core config locator insists on a `testo.{xml,yml,...}` file next to
+    infection.json, even for the Testo adapter that never reads it (testo/bridge-infection
+    ignores this path; the real configuration lives in testo.php). Without this file
+    `vendor/bin/infection` aborts with:
+        The path "..." does not contain any of the requested files: "testo.xml", ...
+    Do not remove it and do not put real configuration here.
+-->
+<testo/>

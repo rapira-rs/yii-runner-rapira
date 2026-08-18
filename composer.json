@@ -43,15 +43,18 @@
     "require-dev": {
         "friendsofphp/php-cs-fixer": "^3.95.1",
         "httpsoft/http-message": "^1.0",
-        "phpunit/phpunit": "^10.3",
+        "llm/skills": "^1.9",
         "psr/container": "^2.0",
         "psr/event-dispatcher": "^1.0",
         "psr/http-server-handler": "^1.0",
         "psr/http-server-middleware": "^1.0",
+        "rapira/contract": "@dev",
         "rector/rector": "^2.4.2",
         "roave/infection-static-analysis-plugin": "^1.35",
         "shipmonk/composer-dependency-analyser": "^1.8",
-        "spatie/phpunit-watcher": "^1.23",
+        "testo/bridge-infection": "^0.1.8",
+        "testo/bridge-rector": "^0.2.3",
+        "testo/testo": "^0.10.41",
         "vimeo/psalm": "^5.22 || ^6.1",
         "yiisoft/code-style": "^1.0",
         "yiisoft/config": "^1.1",
@@ -76,6 +79,7 @@
         "allow-plugins": {
             "composer/package-versions-deprecated": true,
             "infection/extension-installer": true,
+            "llm/skills": true,
             "yiisoft/config": true
         }
     },
@@ -83,7 +87,9 @@
         "cs-fix": "php-cs-fixer fix",
         "dependency-analyser": "composer-dependency-analyser",
         "rector": "rector",
-        "test": "phpunit --testdox",
-        "test-watch": "phpunit-watcher watch"
+        "test": "testo",
+        "test:unit": "testo --suite=Unit",
+        "test:feature": "testo --suite=Feature",
+        "test:acceptance": "testo --suite=Acceptance"
     }
 }

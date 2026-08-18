@@ -22,15 +22,6 @@ Thumbs.db
 # composer itself is not needed
 composer.phar
 
-# phpunit itself is not needed
-phpunit.phar
-
-# local phpunit config
-/phpunit.xml
-
-# phpunit cache
-/.phpunit.cache
-.phpunit.result.cache
 rr.exe
 
 # config merge plan
@@ -38,6 +29,9 @@ rr.exe
 
 # PHP CS Fixer
 /.php-cs-fixer.cache
+
+# Testo coverage report
+/coverage.xml
 
 # AI local settings
 /.claude

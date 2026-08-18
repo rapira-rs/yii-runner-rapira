@@ -1,11 +1,17 @@
 # Internals
 
-## Unit testing
+## Testing
 
-The package is tested with [PHPUnit](https://phpunit.de/). To run tests:
+The package is tested with [Testo](https://php-testo.github.io/). To run all suites:
 
 ```shell
-./vendor/bin/phpunit
+./vendor/bin/testo
+```
+
+Tests are split into suites (see `testo.php`): `Unit`, `Feature` and `Acceptance`. Run one with:
+
+```shell
+./vendor/bin/testo --suite=Unit
 ```
 
 ## Mutation testing
