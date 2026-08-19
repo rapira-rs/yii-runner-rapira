@@ -5,13 +5,13 @@ declare(strict_types=1);
 use Testo\Application\Config\ApplicationConfig;
 use Testo\Application\Config\Plugin\SuitePlugins;
 use Testo\Application\Config\SuiteConfig;
-use Yiisoft\Yii\Runner\Rapira\Tests\Testo\RapiraBinPlugin;
+use Rapira\Testing\Testo\RunRapiraPlugin;
 
 $projectRoot = __DIR__;
 $isWindows = \DIRECTORY_SEPARATOR === '\\';
 $appDirectory = $projectRoot . '/tests/Acceptance/App';
-// The rapira binary is fetched by dload into `runtime/` (see `dload.xml`); the release tarball keeps
-// its `bin/rapira` + `lib/rapira/` layout nested, so the executable lives at `runtime/bin/rapira`.
+// The rapira binary (and its bundled `libphp`) is fetched by dload into `runtime/bin`; the plugin
+// downloads it on demand when this path is missing.
 $rapiraBinary = $projectRoot . '/runtime/bin/rapira' . ($isWindows ? '.exe' : '');
 
 return new ApplicationConfig(
@@ -23,10 +23,9 @@ return new ApplicationConfig(
             name: 'Acceptance',
             location: ['tests/Acceptance'],
             plugins: SuitePlugins::with(
-                new RapiraBinPlugin(
+                new RunRapiraPlugin(
                     binary: $rapiraBinary,
                     workingDirectory: $appDirectory,
-                    address: '127.0.0.1:8080',
                 ),
             ),
         ),

@@ -5,10 +5,11 @@ declare(strict_types=1);
 namespace Yiisoft\Yii\Runner\Rapira\Tests\Acceptance;
 
 use JsonException;
+use Rapira\Testing\Common\Mode;
+use Rapira\Testing\Testo\Attribute\RunRapira;
 use RuntimeException;
 use Testo\Assert;
 use Testo\Test;
-use Yiisoft\Yii\Runner\Rapira\Tests\Testo\RapiraBinPlugin;
 
 use function curl_close;
 use function curl_error;
@@ -27,9 +28,10 @@ use const JSON_THROW_ON_ERROR;
 
 /**
  * Runs real HTTP requests against a Yii3 application served by the `rapira` binary
- * (see {@see RapiraBinPlugin} and `tests/Acceptance/App`).
+ * (see {@see RunRapira} and `tests/Acceptance/App`).
  */
 #[Test]
+#[RunRapira(mode: Mode::Worker)]
 final class RapiraServerTest
 {
     private const BASE_URL = 'http://127.0.0.1:8080';
