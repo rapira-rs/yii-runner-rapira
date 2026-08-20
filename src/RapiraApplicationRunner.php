@@ -12,6 +12,7 @@ use Psr\Container\NotFoundExceptionInterface;
 use Psr\Http\Message\ResponseInterface;
 use Psr\Http\Message\ServerRequestInterface;
 use Psr\Log\NullLogger;
+use Rapira\Sdk\Http\SapiRequestFactory;
 use Throwable;
 use Yiisoft\Definitions\Exception\CircularReferenceException;
 use Yiisoft\Definitions\Exception\InvalidConfigException;
@@ -29,11 +30,11 @@ use Yiisoft\Yii\Http\Application;
 use Yiisoft\Yii\Http\Handler\ThrowableHandler;
 use Yiisoft\Yii\Runner\ApplicationRunner;
 
-use function gc_collect_cycles;
-use function Rapira\handle_request;
 use function function_exists;
+use function gc_collect_cycles;
 use function ignore_user_abort;
 use function microtime;
+use function Rapira\handle_request;
 
 // Prevent worker script termination when a client connection is interrupted.
 ignore_user_abort(true);
@@ -175,8 +176,8 @@ final class RapiraApplicationRunner extends ApplicationRunner
         $application = $container->get(Application::class);
         $application->start();
 
-        /** @var RequestFactory $requestFactory */
-        $requestFactory = $container->get(RequestFactory::class);
+        /** @var SapiRequestFactory $requestFactory */
+        $requestFactory = $container->get(SapiRequestFactory::class);
         $errorCatcher = null;
 
         $handler = function () use (

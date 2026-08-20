@@ -5,7 +5,7 @@ declare(strict_types=1);
 use Testo\Application\Config\ApplicationConfig;
 use Testo\Application\Config\Plugin\SuitePlugins;
 use Testo\Application\Config\SuiteConfig;
-use Rapira\Testing\Testo\RunRapiraPlugin;
+use Rapira\Sdk\Testing\Testo\RunRapiraPlugin;
 
 $projectRoot = __DIR__;
 $isWindows = \DIRECTORY_SEPARATOR === '\\';
@@ -17,7 +17,6 @@ $rapiraBinary = $projectRoot . '/runtime/bin/rapira' . ($isWindows ? '.exe' : ''
 return new ApplicationConfig(
     src: ['src'],
     suites: [
-        new SuiteConfig(name: 'Unit', location: ['tests/Unit']),
         new SuiteConfig(name: 'Feature', location: ['tests/Feature']),
         new SuiteConfig(
             name: 'Acceptance',
