@@ -9,4 +9,8 @@ return (new Configuration())
     ->setFileExtensions(['php'])
     ->addPathToScan(__DIR__ . '/src', isDev: false)
     ->addPathToScan(__DIR__ . '/tests', isDev: true)
-    ->ignoreUnknownFunctions(['getallheaders', 'Rapira\handle_request']);
+    ->ignoreUnknownFunctions([
+        'Rapira\get_dispatcher',
+        'Rapira\get_mode',
+        'Rapira\handle_request',
+    ]);

@@ -7,11 +7,19 @@ namespace Yiisoft\Yii\Runner\Rapira;
 use ErrorException;
 use JsonException;
 use LogicException;
+use Override;
 use Psr\Container\ContainerExceptionInterface;
+use Psr\Container\ContainerInterface;
 use Psr\Container\NotFoundExceptionInterface;
 use Psr\Http\Message\ResponseInterface;
 use Psr\Http\Message\ServerRequestInterface;
 use Psr\Log\NullLogger;
+use Rapira\Exception\ClosedException;
+use Rapira\Exception\WorkDiscardedException;
+use Rapira\Http\Exchange;
+use Rapira\Http\HttpDispatcher;
+use Rapira\Mode;
+use Rapira\Sdk\Http\DispatcherRequestFactory;
 use Rapira\Sdk\Http\SapiRequestFactory;
 use Throwable;
 use Yiisoft\Definitions\Exception\CircularReferenceException;
@@ -34,13 +42,19 @@ use function function_exists;
 use function gc_collect_cycles;
 use function ignore_user_abort;
 use function microtime;
+use function Rapira\get_dispatcher;
+use function Rapira\get_mode;
 use function Rapira\handle_request;
 
 // Prevent worker script termination when a client connection is interrupted.
 ignore_user_abort(true);
 
 /**
- * `RapiraApplicationRunner` runs the Yii HTTP application using Rapira worker mode.
+ * `RapiraApplicationRunner` runs the Yii HTTP application under Rapira.
+ *
+ * The mode is a property of how the host launched the process, not of the entry script: the same
+ * artifact serves a SAPI worker loop and the dispatcher. The runner detects the {@see Mode} at startup
+ * and drives the matching loop, so user code never chooses between them.
  */
 final class RapiraApplicationRunner extends ApplicationRunner
 {
@@ -71,8 +85,9 @@ final class RapiraApplicationRunner extends ApplicationRunner
      * @param ErrorHandler|null $temporaryErrorHandler The temporary error handler instance that used to handle
      * the creation of configuration and container instances, then the error handler configured in your application
      * configuration will be used.
-     * @param EmitterInterface|null $emitter The emitter instance to send the response with. By default, it uses
-     * {@see SapiEmitter}.
+     * @param EmitterInterface|null $emitter The emitter instance to send the response with in SAPI and classic
+     * modes. By default, it uses {@see SapiEmitter}. Dispatcher mode always writes through the exchange and
+     * ignores this emitter.
      *
      * @psalm-param list<string> $nestedParamsGroups
      * @psalm-param list<string> $nestedEventsGroups
@@ -129,9 +144,18 @@ final class RapiraApplicationRunner extends ApplicationRunner
      * @throws CircularReferenceException|ErrorException|InvalidConfigException|JsonException
      * @throws ContainerExceptionInterface|NotFoundException|NotFoundExceptionInterface|NotInstantiableException
      */
+    #[Override]
     public function run(): void
     {
-        $this->runInternal($this->emitter);
+        [$container, $application] = $this->prepareApplication();
+
+        match ($this->detectMode()) {
+            Mode::Dispatcher => $this->runDispatcherLoop($container, $application),
+            Mode::Worker => $this->runSapiLoop($container, $application, $this->emitter, null),
+            Mode::Classic => $this->runOnce($container, $application, $this->emitter, null),
+        };
+
+        $application->shutdown();
     }
 
     /**
@@ -145,19 +169,32 @@ final class RapiraApplicationRunner extends ApplicationRunner
      */
     public function runAndGetResponse(?ServerRequestInterface $request = null): ResponseInterface
     {
-        $this->runInternal(
-            $this->fakeEmitter ??= new FakeEmitter(),
-            $request,
-        );
-        return $this->fakeEmitter->getLastResponse()
+        [$container, $application] = $this->prepareApplication();
+        $emitter = $this->fakeEmitter ??= new FakeEmitter();
+
+        // The response is captured, never streamed to a client, so it goes through the SAPI-style
+        // single-request path rather than the dispatcher loop even when a dispatcher is present.
+        if ($this->detectMode() === Mode::Worker) {
+            $this->runSapiLoop($container, $application, $emitter, $request);
+        } else {
+            $this->runOnce($container, $application, $emitter, $request);
+        }
+
+        $application->shutdown();
+
+        return $emitter->getLastResponse()
             ?? throw new LogicException('No response was emitted.');
     }
 
     /**
-     * @throws CircularReferenceException|ErrorException|HeadersHaveBeenSentException|InvalidConfigException
+     * Builds the container, registers the error handlers, runs the bootstrap and starts the application.
+     *
+     * @throws CircularReferenceException|ErrorException|InvalidConfigException|JsonException
      * @throws ContainerExceptionInterface|NotFoundException|NotFoundExceptionInterface|NotInstantiableException
+     *
+     * @return array{0: ContainerInterface, 1: Application}
      */
-    private function runInternal(EmitterInterface $emitter, ?ServerRequestInterface $request = null): void
+    private function prepareApplication(): array
     {
         // Register temporary error handler to catch error while the container is building.
         $this->registerErrorHandler($this->temporaryErrorHandler);
@@ -176,56 +213,171 @@ final class RapiraApplicationRunner extends ApplicationRunner
         $application = $container->get(Application::class);
         $application->start();
 
+        return [$container, $application];
+    }
+
+    /**
+     * The mode the process runs in. Outside a Rapira runtime — the CLI, tests — the function is absent
+     * and the process behaves as {@see Mode::Classic}: one request handled once.
+     */
+    private function detectMode(): Mode
+    {
+        return function_exists('Rapira\get_mode') ? get_mode() : Mode::Classic;
+    }
+
+    /**
+     * SAPI worker loop: keep pulling requests from `Rapira\handle_request()` and emit each response.
+     */
+    private function runSapiLoop(
+        ContainerInterface $container,
+        Application $application,
+        EmitterInterface $emitter,
+        ?ServerRequestInterface $request,
+    ): void {
         /** @var SapiRequestFactory $requestFactory */
         $requestFactory = $container->get(SapiRequestFactory::class);
         $errorCatcher = null;
 
         $handler = function () use (
-            $request,
-            $requestFactory,
-            $application,
             $container,
+            $application,
             $emitter,
+            $requestFactory,
+            $request,
             &$errorCatcher,
         ): bool {
-            $startTime = microtime(true);
+            $currentRequest = ($request ?? $requestFactory->create())
+                ->withAttribute('applicationStartTime', microtime(true));
 
-            $request = ($request ?? $requestFactory->create())
-                ->withAttribute('applicationStartTime', $startTime);
-
-            try {
-                $response = $application->handle($request);
-                $emitter->emit($response);
-            } catch (Throwable $throwable) {
-                $handler = new ThrowableHandler($throwable);
-                $errorCatcher ??= $container->get(ErrorCatcher::class);
-                /** @var ErrorCatcher $errorCatcher */
-                $response = $errorCatcher->process($request, $handler);
-                $emitter->emit($response);
-            }
-
-            $application->afterEmit($response);
-
-            // We should reset the state of such services at every request.
-            /** @var StateResetter $stateResetter */
-            $stateResetter = $container->get(StateResetter::class);
-            $stateResetter->reset();
-            gc_collect_cycles();
+            $this->handleRequest($container, $application, $emitter, $currentRequest, $errorCatcher);
 
             return true;
         };
 
-        $isInWorkerMode = function_exists('Rapira\handle_request');
+        while (handle_request($handler));
+    }
 
-        if (!$isInWorkerMode) {
-            $handler();
-            $application->shutdown();
-            return;
+    /**
+     * Dispatcher loop: take {@see Exchange} units from the HTTP dispatcher and write each response back.
+     */
+    private function runDispatcherLoop(ContainerInterface $container, Application $application): void
+    {
+        /** @var HttpDispatcher $dispatcher */
+        $dispatcher = get_dispatcher();
+        /** @var DispatcherRequestFactory $requestFactory */
+        $requestFactory = $container->get(DispatcherRequestFactory::class);
+        $errorCatcher = null;
+
+        try {
+            while (true) {
+                // Blocks the fiber until a unit arrives; other fibers keep running meanwhile.
+                $exchange = $dispatcher->receive();
+                $this->handleExchange($container, $application, $requestFactory, $exchange, $errorCatcher);
+            }
+        } catch (ClosedException) {
+            // The dispatcher is drained: no more work will ever arrive. Leave the loop.
+        }
+    }
+
+    /**
+     * Single request, handled once and returned. Used in classic mode, on the CLI and in tests.
+     */
+    private function runOnce(
+        ContainerInterface $container,
+        Application $application,
+        EmitterInterface $emitter,
+        ?ServerRequestInterface $request,
+    ): void {
+        /** @var SapiRequestFactory $requestFactory */
+        $requestFactory = $container->get(SapiRequestFactory::class);
+        $errorCatcher = null;
+
+        $request = ($request ?? $requestFactory->create())
+            ->withAttribute('applicationStartTime', microtime(true));
+
+        $this->handleRequest($container, $application, $emitter, $request, $errorCatcher);
+    }
+
+    /**
+     * Handles one request through an emitter: process it, emit the response, then run the per-request
+     * teardown. On a failure while processing or emitting, an error response is emitted instead.
+     *
+     * @param ErrorCatcher|null $errorCatcher Fetched from the container once and reused across requests.
+     */
+    private function handleRequest(
+        ContainerInterface $container,
+        Application $application,
+        EmitterInterface $emitter,
+        ServerRequestInterface $request,
+        ?ErrorCatcher &$errorCatcher,
+    ): void {
+        try {
+            $response = $application->handle($request);
+            $emitter->emit($response);
+        } catch (Throwable $throwable) {
+            $errorCatcher ??= $container->get(ErrorCatcher::class);
+            /** @var ErrorCatcher $errorCatcher */
+            $response = $errorCatcher->process($request, new ThrowableHandler($throwable));
+            $emitter->emit($response);
         }
 
-        while (handle_request($handler));
+        $this->afterRequest($container, $application, $response);
+    }
 
-        $application->shutdown();
+    /**
+     * Handles one dispatcher exchange: process it and write the response back through the exchange.
+     *
+     * Processing and emitting are separate steps. A handler failure is answered with an error response
+     * while the exchange is still untouched. Emitting streams the body, so once the head is committed
+     * nothing can be answered anymore: a host that closed the exchange meanwhile — client gone, deadline
+     * reached, the worker draining — surfaces as {@see WorkDiscardedException}, the unit is already
+     * failed on the host side and is dropped here. The per-request teardown runs whatever happened, so
+     * a dropped exchange leaks no state into the next one.
+     *
+     * @param ErrorCatcher|null $errorCatcher Fetched from the container once and reused across exchanges.
+     */
+    private function handleExchange(
+        ContainerInterface $container,
+        Application $application,
+        DispatcherRequestFactory $requestFactory,
+        Exchange $exchange,
+        ?ErrorCatcher &$errorCatcher,
+    ): void {
+        $request = $requestFactory->create($exchange)
+            ->withAttribute('applicationStartTime', microtime(true));
+
+        try {
+            $response = $application->handle($request);
+        } catch (Throwable $throwable) {
+            $errorCatcher ??= $container->get(ErrorCatcher::class);
+            /** @var ErrorCatcher $errorCatcher */
+            $response = $errorCatcher->process($request, new ThrowableHandler($throwable));
+        }
+
+        try {
+            (new ExchangeEmitter($exchange))->emit($response);
+        } catch (WorkDiscardedException) {
+            // Nothing more to send: the host has already failed the unit.
+        } finally {
+            $this->afterRequest($container, $application, $response);
+        }
+    }
+
+    /**
+     * Per-request teardown shared by every mode: fire `afterEmit`, reset stateful services and collect
+     * cyclic garbage, so nothing leaks into the next request served by the same long-lived process.
+     */
+    private function afterRequest(
+        ContainerInterface $container,
+        Application $application,
+        ResponseInterface $response,
+    ): void {
+        $application->afterEmit($response);
+
+        /** @var StateResetter $stateResetter */
+        $stateResetter = $container->get(StateResetter::class);
+        $stateResetter->reset();
+        gc_collect_cycles();
     }
 
     /**

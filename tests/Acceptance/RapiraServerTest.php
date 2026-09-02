@@ -5,8 +5,8 @@ declare(strict_types=1);
 namespace Yiisoft\Yii\Runner\Rapira\Tests\Acceptance;
 
 use JsonException;
-use Rapira\Testing\Common\Mode;
-use Rapira\Testing\Testo\Attribute\RunRapira;
+use Rapira\Sdk\Common\Mode;
+use Rapira\Sdk\Testing\Testo\Attribute\RunRapira;
 use RuntimeException;
 use Testo\Assert;
 use Testo\Test;

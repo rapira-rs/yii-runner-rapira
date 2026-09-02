@@ -42,6 +42,11 @@ final class RapiraWorker
         if (!function_exists('Rapira\handle_request')) {
             eval(<<<'PHP_WRAP'
             namespace Rapira {
+                function get_mode(): Mode
+                {
+                    return Mode::Worker;
+                }
+
                 function handle_request(callable $handler): bool
                 {
                     return \Yiisoft\Yii\Runner\Rapira\Tests\Feature\Support\RapiraWorker::dispatch($handler);
