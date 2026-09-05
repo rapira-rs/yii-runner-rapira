@@ -9,7 +9,8 @@
     xsi:schemaLocation="https://getpsalm.org/schema/config vendor/vimeo/psalm/config.xsd"
 >
     <stubs>
-        <file name="stubs/rapira.php" />
+        <!-- The contract ships its function declarations outside the autoloader. -->
+        <file name="vendor/rapira/contract/src/functions.php" />
     </stubs>
     <projectFiles>
         <directory name="src" />
