@@ -14,10 +14,12 @@ use Yiisoft\Yii\Runner\Rapira\Tests\Acceptance\Support\ServerRequests;
  * {@see Mode::Classic}.
  */
 #[Test]
-#[RunRapira(mode: Mode::Classic)]
+#[RunRapira(mode: Mode::Classic, address: self::ADDRESS)]
 final class ClassicModeTest
 {
     use ServerRequests;
+
+    private const ADDRESS = '127.0.0.1:8081';
 
     protected function mode(): Mode
     {

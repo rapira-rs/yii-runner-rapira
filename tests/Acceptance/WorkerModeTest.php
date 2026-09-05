@@ -14,10 +14,12 @@ use Yiisoft\Yii\Runner\Rapira\Tests\Acceptance\Support\ServerRequests;
  * {@see Mode::Worker}.
  */
 #[Test]
-#[RunRapira(mode: Mode::Worker)]
+#[RunRapira(mode: Mode::Worker, address: self::ADDRESS)]
 final class WorkerModeTest
 {
     use ServerRequests;
+
+    private const ADDRESS = '127.0.0.1:8082';
 
     protected function mode(): Mode
     {

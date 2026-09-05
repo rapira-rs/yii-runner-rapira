@@ -27,12 +27,11 @@ use const JSON_THROW_ON_ERROR;
 /**
  * The requests every mode must answer identically. A test case picks the mode with `RunRapira` and
  * names it in {@see Mode()}; everything else is shared, since the mode is the host's business and the
- * application must not notice it.
+ * application must not notice it. Each case listens on its own `ADDRESS`, so a server that outlived the
+ * previous case can never answer for the current one.
  */
 trait ServerRequests
 {
-    private const BASE_URL = 'http://127.0.0.1:8080';
-
     public function homeReturnsOk(): void
     {
         [$status, $body] = $this->request('/');
@@ -87,7 +86,7 @@ trait ServerRequests
     {
         $curl = curl_init();
         curl_setopt_array($curl, [
-            CURLOPT_URL => self::BASE_URL . $path,
+            CURLOPT_URL => 'http://' . self::ADDRESS . $path,
             CURLOPT_RETURNTRANSFER => true,
             CURLOPT_TIMEOUT => 5,
         ]);
