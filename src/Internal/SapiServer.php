@@ -2,7 +2,7 @@
 
 declare(strict_types=1);
 
-namespace Yiisoft\Yii\Runner\Rapira\Loop;
+namespace Yiisoft\Yii\Runner\Rapira\Internal;
 
 use Psr\Http\Message\ServerRequestInterface;
 use Rapira\Mode;
@@ -16,6 +16,8 @@ use function Rapira\handle_request;
  * Serves requests that arrive through the SAPI superglobals and answers them through an
  * {@see EmitterInterface}: the {@see Mode::Worker} loop over `Rapira\handle_request()`, and the single
  * pass of {@see Mode::Classic}, the CLI and tests.
+ *
+ * @internal
  */
 final readonly class SapiServer
 {

@@ -2,7 +2,7 @@
 
 declare(strict_types=1);
 
-namespace Yiisoft\Yii\Runner\Rapira\Loop;
+namespace Yiisoft\Yii\Runner\Rapira\Internal;
 
 use Psr\Container\ContainerInterface;
 use Psr\Http\Message\ResponseInterface;
@@ -20,10 +20,13 @@ use function microtime;
  * The part of serving a request that does not depend on where it came from or where the response goes:
  * run it through the application, fall back to an error response on failure, and tear the request down
  * afterwards. The per-mode servers own the transport and call these three steps around it.
+ *
+ * @internal
  */
 final class RequestCycle
 {
     private ?ErrorCatcher $errorCatcher = null;
+    private ?StateResetter $stateResetter = null;
 
     public function __construct(
         private readonly ContainerInterface $container,
@@ -71,7 +74,7 @@ final class RequestCycle
         $this->application->afterEmit($response);
 
         /** @var StateResetter $stateResetter */
-        $stateResetter = $this->container->get(StateResetter::class);
+        $stateResetter = $this->stateResetter ??= $this->container->get(StateResetter::class);
         $stateResetter->reset();
         gc_collect_cycles();
     }

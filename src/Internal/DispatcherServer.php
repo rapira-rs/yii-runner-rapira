@@ -2,7 +2,7 @@
 
 declare(strict_types=1);
 
-namespace Yiisoft\Yii\Runner\Rapira\Loop;
+namespace Yiisoft\Yii\Runner\Rapira\Internal;
 
 use Rapira\Exception\ClosedException;
 use Rapira\Exception\WorkDiscardedException;
@@ -15,13 +15,15 @@ use Yiisoft\Yii\Runner\Rapira\ExchangeEmitter;
 /**
  * Serves {@see Mode::Dispatcher}: takes {@see Exchange} units from the HTTP dispatcher one at a time
  * and writes each response back through its exchange.
+ *
+ * @internal
  */
-final class DispatcherServer
+final readonly class DispatcherServer
 {
     public function __construct(
-        private readonly RequestCycle $cycle,
-        private readonly DispatcherRequestFactory $requestFactory,
-        private readonly HttpDispatcher $dispatcher,
+        private RequestCycle $cycle,
+        private DispatcherRequestFactory $requestFactory,
+        private HttpDispatcher $dispatcher,
     ) {}
 
     /**

@@ -63,5 +63,12 @@ return [
                 'di-web-view-response-with-error.php',
             ],
         ],
-    ]
+    ],
+    'throwing-middleware' => [
+        'di-web' => [
+            '/' => [
+                'di-web-throwing-middleware.php',
+            ],
+        ],
+    ],
 ];

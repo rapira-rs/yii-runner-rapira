@@ -30,14 +30,15 @@ use Yiisoft\PsrEmitter\HeadersHaveBeenSentException;
 use Yiisoft\PsrEmitter\SapiEmitter;
 use Yiisoft\Yii\Http\Application;
 use Yiisoft\Yii\Runner\ApplicationRunner;
-use Yiisoft\Yii\Runner\Rapira\Loop\DispatcherServer;
-use Yiisoft\Yii\Runner\Rapira\Loop\RequestCycle;
-use Yiisoft\Yii\Runner\Rapira\Loop\SapiServer;
+use Yiisoft\Yii\Runner\Rapira\Internal\DispatcherServer;
+use Yiisoft\Yii\Runner\Rapira\Internal\RequestCycle;
+use Yiisoft\Yii\Runner\Rapira\Internal\SapiServer;
 
 use function function_exists;
 use function ignore_user_abort;
 use function Rapira\get_dispatcher;
 use function Rapira\get_mode;
+use function sprintf;
 
 // Prevent worker script termination when a client connection is interrupted.
 ignore_user_abort(true);
@@ -167,14 +168,14 @@ final class RapiraApplicationRunner extends ApplicationRunner
     {
         [$container, $application] = $this->prepareApplication();
         $emitter = $this->fakeEmitter ??= new FakeEmitter();
-        $loop = $this->sapiServer($container, new RequestCycle($container, $application), $emitter, $request);
+        $server = $this->sapiServer($container, new RequestCycle($container, $application), $emitter, $request);
 
         // The response is captured, never streamed to a client, so it goes through the SAPI path even
         // when a dispatcher is present.
         if ($this->detectMode() === Mode::Worker) {
-            $loop->run();
+            $server->run();
         } else {
-            $loop->once();
+            $server->once();
         }
 
         $application->shutdown();
@@ -238,8 +239,11 @@ final class RapiraApplicationRunner extends ApplicationRunner
     {
         /** @var DispatcherRequestFactory $requestFactory */
         $requestFactory = $container->get(DispatcherRequestFactory::class);
-        /** @var HttpDispatcher $dispatcher */
         $dispatcher = get_dispatcher();
+        // The pool may serve any plugin; this runner speaks HTTP only.
+        $dispatcher instanceof HttpDispatcher or throw new LogicException(
+            sprintf('Only the "http" dispatcher is supported, "%s" was given.', $dispatcher->name()),
+        );
 
         return new DispatcherServer($cycle, $requestFactory, $dispatcher);
     }

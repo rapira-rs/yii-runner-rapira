@@ -4,18 +4,27 @@ declare(strict_types=1);
 
 namespace Yiisoft\Yii\Runner\Rapira\Tests\Feature\Support;
 
+use Rapira\Dispatcher;
+use Rapira\Exception\NoDispatcherError;
+use Rapira\Mode;
+
 use function function_exists;
 
 /**
- * Test double for the Rapira worker runtime.
+ * Test double for the Rapira runtime.
  *
- * Registers the global `Rapira\handle_request()` the runner relies on and lets a test script the
- * worker loop: how many iterations to keep running and which per-request `$_SERVER` parameters each
- * iteration exposes. This is the Testo replacement for the `eval()`-based stub and the static
- * bookkeeping that used to live inside the test case.
+ * Registers the global `Rapira\*` functions the runner relies on and lets a test script the process:
+ * which {@see Mode} it reports, which {@see Dispatcher} it hands out, how many worker iterations to
+ * run and which per-request `$_SERVER` parameters each iteration exposes.
  */
 final class RapiraWorker
 {
+    /** The mode `Rapira\get_mode()` reports. */
+    public Mode $mode = Mode::Worker;
+
+    /** The dispatcher `Rapira\get_dispatcher()` returns; null makes it refuse as outside {@see Mode::Dispatcher}. */
+    public ?Dispatcher $dispatcher = null;
+
     /** Number of worker iterations executed so far. */
     public int $handleRequestCalls = 0;
 
@@ -34,8 +43,8 @@ final class RapiraWorker
     private array $requestServerParameterKeys = [];
 
     /**
-     * Register the global `Rapira\handle_request()` function once per process. It delegates to the
-     * worker marked active via {@see activate()}.
+     * Register the global `Rapira\*` functions once per process. They delegate to the worker marked
+     * active via {@see activate()}.
      */
     public static function register(): void
     {
@@ -44,7 +53,12 @@ final class RapiraWorker
             namespace Rapira {
                 function get_mode(): Mode
                 {
-                    return Mode::Worker;
+                    return \Yiisoft\Yii\Runner\Rapira\Tests\Feature\Support\RapiraWorker::mode();
+                }
+
+                function get_dispatcher(): Dispatcher
+                {
+                    return \Yiisoft\Yii\Runner\Rapira\Tests\Feature\Support\RapiraWorker::dispatcher();
                 }
 
                 function handle_request(callable $handler): bool
@@ -56,7 +70,7 @@ final class RapiraWorker
         }
     }
 
-    /** Make this worker the target of the global `Rapira\handle_request()`. */
+    /** Make this worker the target of the global `Rapira\*` functions. */
     public function activate(): void
     {
         self::$active = $this;
@@ -70,6 +84,16 @@ final class RapiraWorker
         }
         $this->requestServerParameterKeys = [];
         self::$active = null;
+    }
+
+    public static function mode(): Mode
+    {
+        return self::$active?->mode ?? Mode::Worker;
+    }
+
+    public static function dispatcher(): Dispatcher
+    {
+        return self::$active?->dispatcher ?? throw new NoDispatcherError('No dispatcher outside dispatcher mode.');
     }
 
     public static function dispatch(callable $handler): bool
