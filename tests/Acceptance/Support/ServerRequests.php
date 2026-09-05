@@ -2,14 +2,12 @@
 
 declare(strict_types=1);
 
-namespace Yiisoft\Yii\Runner\Rapira\Tests\Acceptance;
+namespace Yiisoft\Yii\Runner\Rapira\Tests\Acceptance\Support;
 
 use JsonException;
 use Rapira\Sdk\Common\Mode;
-use Rapira\Sdk\Testing\Testo\Attribute\RunRapira;
 use RuntimeException;
 use Testo\Assert;
-use Testo\Test;
 
 use function curl_close;
 use function curl_error;
@@ -27,12 +25,11 @@ use const CURLOPT_URL;
 use const JSON_THROW_ON_ERROR;
 
 /**
- * Runs real HTTP requests against a Yii3 application served by the `rapira` binary
- * (see {@see RunRapira} and `tests/Acceptance/App`).
+ * The requests every mode must answer identically. A test case picks the mode with `RunRapira` and
+ * names it in {@see Mode()}; everything else is shared, since the mode is the host's business and the
+ * application must not notice it.
  */
-#[Test]
-#[RunRapira(mode: Mode::Worker)]
-final class RapiraServerTest
+trait ServerRequests
 {
     private const BASE_URL = 'http://127.0.0.1:8080';
 
@@ -58,9 +55,18 @@ final class RapiraServerTest
 
         Assert::same($status, 200);
 
-        /** @var array{status: string} $data */
+        /** @var array{status: string, mode: string} $data */
         $data = json_decode($body, true, flags: JSON_THROW_ON_ERROR);
         Assert::same($data['status'], 'ok');
+    }
+
+    public function processRunsInTheRequestedMode(): void
+    {
+        [, $body] = $this->request('/status');
+
+        /** @var array{mode: string} $data */
+        $data = json_decode($body, true, flags: JSON_THROW_ON_ERROR);
+        Assert::same($data['mode'], $this->mode()->value);
     }
 
     public function unknownRouteReturns404(): void
@@ -69,6 +75,8 @@ final class RapiraServerTest
 
         Assert::same($status, 404);
     }
+
+    abstract protected function mode(): Mode;
 
     /**
      * @return array{0: int, 1: string} The response status code and body.
