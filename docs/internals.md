@@ -8,10 +8,12 @@ The package is tested with [Testo](https://php-testo.github.io/). To run all sui
 ./vendor/bin/testo
 ```
 
-Tests are split into suites (see `testo.php`): `Unit`, `Feature` and `Acceptance`. Run one with:
+Tests are split into suites (see `testo.php`): `Feature` runs the runner against a fake Rapira runtime,
+`Acceptance` starts the real `rapira` binary in every mode and sends HTTP requests to it. The binary is
+downloaded into `runtime/bin` on demand. Run one suite with:
 
 ```shell
-./vendor/bin/testo --suite=Unit
+./vendor/bin/testo --suite=Feature
 ```
 
 ## Mutation testing

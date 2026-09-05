@@ -2,7 +2,7 @@
     <a href="https://github.com/yiisoft" target="_blank">
         <img src="https://yiisoft.github.io/docs/images/yii_logo.svg" height="100px" alt="Yii">
     </a>
-    <h1 align="center">Yii Rapira worker runner</h1>
+    <h1 align="center">Yii Rapira runner</h1>
     <br>
 </p>
 
@@ -14,14 +14,16 @@
 [![static analysis](https://github.com/yiisoft/yii-runner-rapira/workflows/static%20analysis/badge.svg)](https://github.com/yiisoft/yii-runner-rapira/actions?query=workflow%3A%22static+analysis%22)
 [![type-coverage](https://shepherd.dev/github/yiisoft/yii-runner-rapira/coverage.svg)](https://shepherd.dev/github/yiisoft/yii-runner-rapira)
 
-The package contains a bootstrap for running Yii3 application using [Rapira](https://rapira.rs/) worker mode.
+The package contains a bootstrap for running a Yii3 application under [Rapira](https://rapira.rs/), a PHP
+application server with PHP embedded in the process.
 
 > [!NOTE]
-> If you do not want to run Yii3 in worker mode, please use [yiisoft/yii-runner-http](https://github.com/yiisoft/yii-runner-http) which is default for [yiisoft/app](https://github.com/yiisoft/app) and [yiisoft/app-api](https://github.com/yiisoft/app-api).
+> To serve the application with PHP-FPM or another classic SAPI, use [yiisoft/yii-runner-http](https://github.com/yiisoft/yii-runner-http),
+> the default runner of [yiisoft/app](https://github.com/yiisoft/app) and [yiisoft/app-api](https://github.com/yiisoft/app-api).
 
 ## Requirements
 
-- PHP 8.1 - 8.5.
+- PHP 8.4 - 8.5.
 
 ## Installation
 
@@ -73,9 +75,7 @@ $runner = new RapiraApplicationRunner(
 $runner->run();
 ```
 
-### Running
-
-Create a `rapira.toml` next to your `worker.php`:
+Create a `rapira.toml` next to it:
 
 ```toml
 [http]
@@ -94,65 +94,28 @@ rapira serve
 
 See the [Rapira documentation](https://rapira.rs/) for the full list of configuration options.
 
-### Worker mode notes
+### Modes
 
-To recycle a worker after a number of handled requests, set `max_requests` in the `[pool]` section of your
-`rapira.toml`.
+Rapira runs the entry script in one of three modes, chosen by `[pool] mode`. The runner detects the mode at
+startup and serves accordingly, so the same `worker.php` works in every one of them:
 
-When using worker mode, make sure stateful services are reset after each request. For resetters configuration, see
-[Yii DI `StateResetter` documentation](https://github.com/yiisoft/di#resetting-services-state).
+- `classic` — one process per request, the way PHP-FPM works. Handy for debugging: nothing survives between
+  requests.
+- `worker` — a long-lived process serving requests one after another through the SAPI superglobals.
+- `dispatcher` — a long-lived process taking requests from the Rapira dispatcher and writing responses back
+  through it, without the SAPI in between.
 
-### Additional configuration
+In `worker` and `dispatcher` modes the process outlives the request, so stateful services must be reset
+between requests. For resetters configuration, see
+[Yii DI `StateResetter` documentation](https://github.com/yiisoft/di#resetting-services-state). To recycle
+a process after a number of handled requests, set `max_requests` in the `[pool]` section of `rapira.toml`.
+
+### Configuration
 
 By default, the `RapiraApplicationRunner` is configured to work with Yii application templates and follows the
-[config groups convention](https://github.com/yiisoft/docs/blob/master/022-config-groups.md).
-
-You can override the default configuration using constructor parameters and immutable setters.
-
-#### Constructor parameters
-
-`$rootPath` — the absolute path to the project root.
-
-`$debug` — whether the debug mode is enabled.
-
-`$checkEvents` — whether check events' configuration.
-
-`$environment` — the environment name.
-
-`$bootstrapGroup` — the bootstrap configuration group name.
-
-`$eventsGroup` — the events' configuration group name.
-
-`$diGroup` — the container definitions' configuration group name.
-
-`$diProvidersGroup` — the container providers' configuration group name.
-
-`$diDelegatesGroup` — the container delegates' configuration group name.
-
-`$diTagsGroup` — the container tags' configuration group name.
-
-`$paramsGroup` — the config parameters group name.
-
-`$nestedParamsGroups` — configuration group names that are included in a config parameters group. This is needed for
-recursive merge parameters.
-
-`$nestedEventsGroups` — configuration group names that are included in events' configuration group. This is needed for
-reverse and recursive merge events' configurations.
-
-`$configModifiers` — [configuration modifiers](https://github.com/yiisoft/config#configuration-modifiers).
-
-`$configDirectory` — the relative path from `$rootPath` to the configuration storage location.
-
-`$vendorDirectory` — the relative path from `$rootPath` to the vendor directory.
-
-`$configMergePlanFile` — the relative path from `$configDirectory` to merge plan.
-
-`$temporaryErrorHandler` — A temporary error handler is needed to handle the creation of configuration and
-container instances, then the error handler configured in your application configuration will be used.
-
-`$emitter` — an emitter to send the response.
-
-#### Immutable setters
+[config groups convention](https://github.com/yiisoft/docs/blob/master/022-config-groups.md). The constructor
+parameters let you point it at other config groups, directories and a custom temporary error handler or
+emitter; every parameter is documented on the constructor itself.
 
 If the configuration instance settings differ from the default, you can specify a customized configuration instance:
 
@@ -186,7 +149,7 @@ that. You may also check out other [Yii Community Resources](https://www.yiifram
 
 ## License
 
-The Yii Rapira worker Runner is free software. It is released under the terms of the BSD License.
+The Yii Rapira Runner is free software. It is released under the terms of the BSD License.
 Please see [`LICENSE`](./LICENSE.md) for more information.
 
 Maintained by [Yii Software](https://www.yiiframework.com/).
