@@ -18,7 +18,8 @@ use ValueError;
  * In-memory {@see Exchange} that records what a worker writes into it and enforces the same ordering
  * rules the host does: one final head, body only until `$eos`, nothing after finalization.
  *
- * Mark it {@see discard()}ed to simulate a host that closed the exchange first.
+ * Mark it {@see discard()}ed to simulate a host that closed the exchange before the worker took it, or
+ * {@see discardOnWrite()} for one that closed it while the request was being handled.
  */
 final class FakeExchange implements Exchange
 {
@@ -38,6 +39,7 @@ final class FakeExchange implements Exchange
 
     private bool $finalized = false;
     private bool $discarded = false;
+    private bool $discardOnWrite = false;
 
     public function __construct(
         private readonly Request $request = new Request(
@@ -61,6 +63,12 @@ final class FakeExchange implements Exchange
     public function discard(): void
     {
         $this->discarded = true;
+    }
+
+    /** The host closes the exchange while the request is being handled: the first write finds it gone. */
+    public function discardOnWrite(): void
+    {
+        $this->discardOnWrite = true;
     }
 
     public function getBody(): string
@@ -136,6 +144,7 @@ final class FakeExchange implements Exchange
 
     private function assertOpen(): void
     {
+        $this->discarded = $this->discarded || $this->discardOnWrite;
         if ($this->discarded) {
             throw new WorkDiscardedException();
         }

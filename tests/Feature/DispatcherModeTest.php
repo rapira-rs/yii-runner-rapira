@@ -35,6 +35,7 @@ use function str_contains;
 final class DispatcherModeTest
 {
     private RapiraWorker $worker;
+    private SimpleEventDispatcher $events;
 
     #[BeforeTest]
     public function setUp(): void
@@ -86,29 +87,59 @@ final class DispatcherModeTest
     }
 
     #[Test]
-    public function discardedExchangeStillGetsTheTeardown(): void
+    public function bodyFailureIsAnsweredWithAnErrorResponse(): void
     {
-        $runner = $this->runner();
-        $container = $runner->getContainer();
-        /** @var Application $application */
-        $application = $container->get(Application::class);
-        /** @var SimpleEventDispatcher $events */
-        $events = $container->get(EventDispatcherInterface::class);
-        /** @var DispatcherRequestFactory $requestFactory */
-        $requestFactory = $container->get(DispatcherRequestFactory::class);
+        $exchange = new FakeExchange();
+        $this->worker->dispatcher = new FakeHttpDispatcher($exchange);
 
+        $this->runner('view-response-with-error')->run();
+
+        Assert::same($exchange->status, 500);
+        Assert::true(str_contains($exchange->getBody(), 'Failure while creating response stream'));
+        Assert::true($exchange->isFinalized());
+    }
+
+    #[Test]
+    public function failureAfterTheHeadWentOutDoesNotStopTheWorker(): void
+    {
+        $first = new FakeExchange();
+        $second = new FakeExchange();
+        $server = $this->server('failing-body', $first, $second);
+
+        $server->run();
+
+        Assert::same($first->status, 200);
+        Assert::same($first->getBody(), 'partial');
+        Assert::false($first->isFinalized());
+        Assert::same($second->getBody(), 'partial');
+        Assert::false($second->isFinalized());
+        Assert::true($this->events->isClassTriggered(AfterEmit::class, 2));
+    }
+
+    #[Test]
+    public function exchangeCancelledWhileQueuedIsSkipped(): void
+    {
         $exchange = new FakeExchange();
         $exchange->discard();
-        $server = new DispatcherServer(
-            new RequestCycle($container, $application),
-            $requestFactory,
-            new FakeHttpDispatcher($exchange),
-        );
+        $server = $this->server(null, $exchange);
 
         $server->run();
 
         Assert::same($exchange->status, null);
-        Assert::true($events->isClassTriggered(AfterEmit::class, 1));
+        Assert::false($this->events->isClassTriggered(AfterEmit::class));
+    }
+
+    #[Test]
+    public function exchangeClosedByTheHostStillGetsTheTeardown(): void
+    {
+        $exchange = new FakeExchange();
+        $exchange->discardOnWrite();
+        $server = $this->server(null, $exchange);
+
+        $server->run();
+
+        Assert::same($exchange->status, null);
+        Assert::true($this->events->isClassTriggered(AfterEmit::class, 1));
     }
 
     #[Test]
@@ -140,6 +171,28 @@ final class DispatcherModeTest
             ->withMessage('Only the "http" dispatcher is supported, "jobs" was given.');
 
         $this->runner()->run();
+    }
+
+    /**
+     * A server over the application of the given environment, with {@see $events} recording what the
+     * application dispatches.
+     */
+    private function server(?string $environment, FakeExchange ...$exchanges): DispatcherServer
+    {
+        $container = $this->runner($environment)->getContainer();
+        /** @var Application $application */
+        $application = $container->get(Application::class);
+        /** @var SimpleEventDispatcher $events */
+        $events = $container->get(EventDispatcherInterface::class);
+        $this->events = $events;
+        /** @var DispatcherRequestFactory $requestFactory */
+        $requestFactory = $container->get(DispatcherRequestFactory::class);
+
+        return new DispatcherServer(
+            new RequestCycle($container, $application),
+            $requestFactory,
+            new FakeHttpDispatcher(...$exchanges),
+        );
     }
 
     private function runner(?string $environment = null): RapiraApplicationRunner

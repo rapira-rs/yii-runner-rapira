@@ -71,4 +71,11 @@ return [
             ],
         ],
     ],
+    'failing-body' => [
+        'di-web' => [
+            '/' => [
+                'di-web-failing-body.php',
+            ],
+        ],
+    ],
 ];

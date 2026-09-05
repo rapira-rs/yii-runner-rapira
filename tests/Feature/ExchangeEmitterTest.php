@@ -12,6 +12,8 @@ use Testo\Assert;
 use Testo\Expect;
 use Testo\Test;
 use Yiisoft\Yii\Runner\Rapira\ExchangeEmitter;
+use RuntimeException;
+use Yiisoft\Yii\Runner\Rapira\Tests\Feature\Support\FailingStream;
 use Yiisoft\Yii\Runner\Rapira\Tests\Feature\Support\FakeExchange;
 use Yiisoft\Yii\Runner\Rapira\Tests\Feature\Support\UnsizedStream;
 
@@ -55,7 +57,7 @@ final class ExchangeEmitterTest
 
         Assert::same($exchange->status, 200);
         Assert::same($exchange->headers, ['content-length' => ['10']]);
-        Assert::same($exchange->chunks, ['aaaa', 'aaaa', 'aa', '']);
+        Assert::same($exchange->chunks, ['aaaa', 'aaaa', 'aa']);
         Assert::true($exchange->isFinalized());
     }
 
@@ -70,7 +72,7 @@ final class ExchangeEmitterTest
 
         Assert::same($exchange->headers, ['Content-Type' => ['text/event-stream']]);
         Assert::same($exchange->getBody(), 'streamed');
-        Assert::same($exchange->chunks, ['strea', 'med', '']);
+        Assert::same($exchange->chunks, ['strea', 'med']);
     }
 
     #[Test]
@@ -127,6 +129,37 @@ final class ExchangeEmitterTest
         Expect::exception(InvalidArgumentException::class);
 
         new ExchangeEmitter(new FakeExchange(), bufferSize: 0);
+    }
+
+    #[Test]
+    public function bodyFailingBeforeTheFirstByteLeavesTheExchangeUntouched(): void
+    {
+        $exchange = new FakeExchange();
+        $response = (new Response(200, ['Content-Type' => 'text/plain']))->withBody(new FailingStream());
+
+        Expect::exception(RuntimeException::class)->withMessage(FailingStream::MESSAGE);
+        try {
+            (new ExchangeEmitter($exchange))->emit($response);
+        } finally {
+            Assert::same($exchange->status, null);
+            Assert::false($exchange->isFinalized());
+        }
+    }
+
+    #[Test]
+    public function bodyFailingMidwayLeavesTheExchangeUnfinalized(): void
+    {
+        $exchange = new FakeExchange();
+        $response = (new Response())->withBody(new FailingStream('partial'));
+
+        Expect::exception(RuntimeException::class)->withMessage(FailingStream::MESSAGE);
+        try {
+            (new ExchangeEmitter($exchange))->emit($response);
+        } finally {
+            Assert::same($exchange->status, 200);
+            Assert::same($exchange->chunks, ['partial']);
+            Assert::false($exchange->isFinalized());
+        }
     }
 
     /**

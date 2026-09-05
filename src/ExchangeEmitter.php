@@ -59,8 +59,11 @@ final class ExchangeEmitter implements EmitterInterface
 
         $size = $body->getSize();
         if ($size !== null && $size <= $this->bufferSize) {
+            // Read before the head goes out, so a body that fails to render leaves the exchange untouched
+            // and an error response can still be written into it.
+            $contents = $body->getContents();
             $this->exchange->writeHead($status, $headers);
-            $this->exchange->writeBody($body->getContents());
+            $this->exchange->writeBody($contents);
             return;
         }
 
@@ -70,21 +73,30 @@ final class ExchangeEmitter implements EmitterInterface
             $headers['content-length'] = [(string) $size];
         }
 
-        $this->exchange->writeHead($status, $headers);
-        $this->streamBody($body);
+        $this->streamBody($status, $headers, $body);
     }
 
-    private function streamBody(StreamInterface $body): void
+    /**
+     * @param int<100, 599> $status
+     * @param array<non-empty-string, list<string>> $headers
+     */
+    private function streamBody(int $status, array $headers, StreamInterface $body): void
     {
+        // The first chunk is read before the head is committed, for the same reason the buffered path
+        // reads the whole body first: a failure at the start can still be answered.
+        $chunk = $body->eof() ? '' : $body->read($this->bufferSize);
+        $this->exchange->writeHead($status, $headers);
+
         while (!$body->eof()) {
-            $chunk = $body->read($this->bufferSize);
             // An empty chunk without `$eos` is a no-op on the exchange; skip the call.
             if ($chunk !== '') {
                 $this->exchange->writeBody($chunk, eos: false);
             }
+            $chunk = $body->read($this->bufferSize);
         }
 
-        $this->exchange->writeBody('');
+        // The last chunk carries the end of the stream, so a body that ends on a full read costs no extra write.
+        $this->exchange->writeBody($chunk);
     }
 
     /**
